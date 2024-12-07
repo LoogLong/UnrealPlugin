@@ -1,0 +1,35 @@
+{
+  "FileVersion": 3,
+  "Version": 1.0,
+  "VersionName": "1.0.0",
+  "FriendlyName": "SpringMagic",
+  "Description": "",
+  "Category": "Animation",
+  "CreatedBy": "LoogLong",
+  "CreatedByURL": "https://github.com/LoogLong",
+  "DocsURL": "",
+  "MarketplaceURL": "SpringMagic : Simple fake Physics for UnrealEngine5",
+  "SupportURL": "",
+  "CanContainContent": false,
+  "IsBetaVersion": false,
+  "IsExperimentalVersion": false,
+  "Installed": false,
+  "Modules": [
+    {
+      "Name": "SpringMagic",
+      "Type": "Runtime",
+      "LoadingPhase": "PostConfigInit"
+    },
+    {
+      "Name": "SpringMagicEditor",
+      "Type": "UncookedOnly",
+      "LoadingPhase": "PreDefault"
+    }
+  ],
+  "Plugins": [
+    {
+      "Name": "StructUtils",
+      "Enabled": true
+    }
+  ]
+}
