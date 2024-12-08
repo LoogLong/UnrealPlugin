@@ -30,7 +30,7 @@ struct FSpringMagicParticle
 	FTransform LocalTransform;
 	FCompactPoseBoneIndex BoneIndex;
 
-
+	float Radius;
 	bool bDummyBone;
 	bool bRootBone;
 };
@@ -47,6 +47,29 @@ struct FSpringMagicJoint
 	FVector NewChildPosition;
 	FVector CurrentChildPosition;
 };
+
+
+
+struct FSpringMagicSphere
+{
+	FBoneReference BindBone;
+	FVector Center;
+	float Radius;
+
+	FVector CenterSimSpace;
+};
+
+struct FSpringMagicCapsule
+{
+	FBoneReference BindBone;
+	FVector CenterA;
+	FVector CenterB;
+	float Radius;
+
+	FVector CenterASimSpace;
+	FVector CenterBSimSpace;
+};
+
 
 /**
  * The implementation of FAnimNode_SpringMagic is highly inspired By Anim Bai's SpringMagic for Maya
@@ -91,6 +114,12 @@ public:
 	UPROPERTY(EditAnywhere, Category = "ComponentMovenent")
 	float ComponentMovementTranslation = 0.2;
 
+	UPROPERTY(EditAnywhere, Category = "Collision")
+	bool bEnableCollision = false;
+
+	UPROPERTY(EditAnywhere, Category = "Collision")
+	TObjectPtr<UPhysicsAsset> PhysicsAsset;
+
 public:
 	friend class FSpringMagicEditMode;
 	FAnimNode_SpringMagic();
@@ -128,10 +157,16 @@ protected:
 
 
 private:
-	void InitializeSimulation(const FBoneContainer& RequiredBones);
+	void InitializeSimulation(FComponentSpacePoseContext& Output, const FBoneContainer& RequiredBones);
+	void InitializeCollision(const FBoneContainer& RequiredBones);
+	void UpdateCollision(FComponentSpacePoseContext& Output, const FBoneContainer& RequiredBones);
+
+	void CollisionDetection(const FSpringMagicParticle& Particle, FVector& InOutTargetChildPosition, FVector& InOutCurrentChildPosition);
 
 	TArray<FSpringMagicParticle> SimulationParticles;
 	TArray<TArray<FSpringMagicJoint>> SimulationJoints;
+	TArray<FSpringMagicCapsule> CapsuleColliders;
+	TArray<FSpringMagicSphere> SphereColliders;
 	int32 MaxChainLength = 0;
 	float SinCounter = 0.f;
 	FTransform PreComponentTransform;

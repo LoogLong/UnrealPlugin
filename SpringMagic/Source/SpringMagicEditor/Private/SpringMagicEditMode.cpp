@@ -61,6 +61,18 @@ void FSpringMagicEditMode::Render(const FSceneView* View, FViewport* Viewport, F
 				DrawWireSphere(PDI, Chain.CurrentChildPosition, FLinearColor::White, 1.2f, 16, SDPG_Foreground);
 			}
 		}
+
+		FMaterialRenderProxy* Material = GEngine->ConstraintLimitMaterialPrismatic->GetRenderProxy();
+		for (auto& Sphere : RuntimeNode->SphereColliders)
+		{
+			DrawSphere(PDI, Sphere.CenterSimSpace, FRotator::ZeroRotator, FVector(Sphere.Radius), 16, 4, Material, SDPG_World);
+		}
+		for (auto& Capsule : RuntimeNode->CapsuleColliders)
+		{
+			DrawCylinder(PDI, Capsule.CenterASimSpace, Capsule.CenterBSimSpace, Capsule.Radius, 25, Material, SDPG_World);
+			DrawSphere(PDI, Capsule.CenterASimSpace, FRotator::ZeroRotator, FVector(Capsule.Radius), 24, 6, Material, SDPG_World);
+			DrawSphere(PDI, Capsule.CenterBSimSpace, FRotator::ZeroRotator, FVector(Capsule.Radius), 24, 6, Material, SDPG_World);
+		}
 	}
 	FAnimNodeEditMode::Render(View, Viewport, PDI);
 }
