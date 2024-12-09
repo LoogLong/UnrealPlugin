@@ -11,3 +11,4 @@ My Personal Unreal Plugins
 ### Advangtage & usage
  * stable and easy to use
  * Simulate anime ribbon
+ * demo: https://www.bilibili.com/video/BV1bEiyYKETw/?share_source=copy_web&vd_source=5056839051823b93da2e92adeb1541fd
