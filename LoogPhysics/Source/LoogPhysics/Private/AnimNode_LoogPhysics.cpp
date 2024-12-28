@@ -10,228 +10,6 @@
 
 DECLARE_CYCLE_STAT(TEXT("LoogPhysics_Eval"), STAT_LoogPhysics_Eval, STATGROUP_Anim);
 
-namespace LoogPhysicsIntersectionTest
-{
-	// take from https://gist.github.com/jdryg/ecde24d34aa0ce2d4d87
-
-	/**
-	 * return true if intersection happened
-	 */
-	bool IntersectRaySphere(const FRay& Ray, const FVector& SphereCenter, const float& SphereRadius, float& OutTMin, float& OutTMax)
-	{
-		FVector CO = Ray.Origin - SphereCenter;
-
-		const float A = Ray.Direction.Dot(Ray.Direction);
-		const float B = 2.0f * CO.Dot(Ray.Direction);
-		const float C = CO.Dot(CO) - (SphereRadius * SphereRadius);
-
-		float Discriminant = B * B - 4.0f * A * C;
-		if (Discriminant < 0.0f)
-			return false;
-
-		OutTMin = (-B - FMath::Sqrt(Discriminant)) / (2.0f * A);
-		OutTMax = (-B + FMath::Sqrt(Discriminant)) / (2.0f * A);
-		if (OutTMin > OutTMax)
-		{
-			float temp = OutTMin;
-			OutTMin       = OutTMax;
-			OutTMax       = temp;
-		}
-
-		return true;
-	}
-
-	bool IntersectRayCapsule(const FRay& Ray, const FVector& CapsuleA, const FVector& CapsuleB, const float& CapsuleRadius, FVector& OutP1, FVector& OutP2, FVector& OutN1, FVector& OutN2, float& OutTMin, float& OutTMax)
-	{
-		// http://pastebin.com/2XrrNcxb
-
-		// Substituting equ. (1) - (6) to equ. (I) and solving for t' gives:
-		//
-		// t' = (t * dot(AB, d) + dot(AB, AO)) / dot(AB, AB); (7) or
-		// t' = t * m + n where 
-		// m = dot(AB, d) / dot(AB, AB) and 
-		// n = dot(AB, AO) / dot(AB, AB)
-		//
-		FVector AB = CapsuleB - CapsuleA;
-		FVector AO = Ray.Origin - CapsuleA;
-
-		float AB_dot_d  = AB.Dot(Ray.Direction);
-		float AB_dot_AO = AB.Dot(AO);
-		float AB_dot_AB = AB.Dot(AB);
-
-		const float M = AB_dot_d / AB_dot_AB;
-		const float N = AB_dot_AO / AB_dot_AB;
-
-		// Substituting (7) into (II) and solving for t gives:
-		//
-		// dot(Q, Q)*t^2 + 2*dot(Q, R)*t + (dot(R, R) - r^2) = 0
-		// where
-		// Q = d - AB * m
-		// R = AO - AB * n
-		FVector Q = Ray.Direction - (AB * M);
-		FVector R = AO - (AB * N);
-
-		float A = Q.Dot(Q);
-		float B = 2.0f * Q.Dot(R);
-		float C = R.Dot(R) - (CapsuleRadius * CapsuleRadius);
-
-		if (A == 0.0f)
-		{
-			// Special case: AB and ray direction are parallel. If there is an intersection it will be on the end spheres...
-			// NOTE: Why is that?
-			// Q = d - AB * m =>
-			// Q = d - AB * (|AB|*|d|*cos(AB,d) / |AB|^2) => |d| == 1.0
-			// Q = d - AB * (|AB|*cos(AB,d)/|AB|^2) =>
-			// Q = d - AB * cos(AB, d) / |AB| =>
-			// Q = d - unit(AB) * cos(AB, d)
-			//
-			// |Q| == 0 means Q = (0, 0, 0) or d = unit(AB) * cos(AB,d)
-			// both d and unit(AB) are unit vectors, so cos(AB, d) = 1 => AB and d are parallel.
-			// 
-
-			float ATMin, ATMax, BTMin, BTMax;
-			if (!IntersectRaySphere(Ray, CapsuleA, CapsuleRadius, ATMin, ATMax) ||
-				!IntersectRaySphere(Ray, CapsuleB, CapsuleRadius, BTMin, BTMax))
-			{
-				// No intersection with one of the spheres means no intersection at all...
-				return false;
-			}
-
-			if (ATMin < BTMin)
-			{
-				OutP1 = Ray.Origin + (Ray.Direction * ATMin);
-				OutN1 = OutP1 - CapsuleA;
-				OutTMin = ATMin;
-				OutN1.Normalize();
-			}
-			else
-			{
-				OutP1 = Ray.Origin + (Ray.Direction * BTMin);
-				OutN1 = OutP1 - CapsuleB;
-				OutTMin = BTMin;
-				OutN1.Normalize();
-			}
-
-			if (ATMax > BTMax)
-			{
-				OutP2 = Ray.Origin + (Ray.Direction * ATMax);
-				OutN2 = OutP2 - CapsuleA;
-				OutTMax = ATMax;
-				OutN2.Normalize();
-			}
-			else
-			{
-				OutP2 = Ray.Origin + (Ray.Direction * BTMax);
-				OutN2 = OutP2 - CapsuleB;
-				OutTMax = BTMax;
-				OutN2.Normalize();
-			}
-
-			return true;
-		}
-
-		float Discriminant = B * B - 4.0f * A * C;
-		if (Discriminant < 0.0f)
-		{
-			// The ray doesn't hit the infinite cylinder defined by (A, B).
-			// No intersection.
-			return false;
-		}
-
-		float TMin = (-B - FMath::Sqrt(Discriminant)) / (2.0f * A);
-		float TMax = (-B + FMath::Sqrt(Discriminant)) / (2.0f * A);
-		if (TMin > TMax)
-		{
-			float Temp = TMin;
-			TMin       = TMax;
-			TMax       = Temp;
-		}
-
-		// Now check to see if K1 and K2 are inside the line segment defined by A,B
-		float TK1 = TMin * M + N;
-		if (TK1 < 0.0f)
-		{
-			// On sphere (A, r)...
-			float STMin, STMax;
-			if (IntersectRaySphere(Ray, CapsuleA, CapsuleRadius, STMin, STMax))
-			{
-				OutP1 = Ray.Origin + (Ray.Direction * STMin);
-				OutN1 = OutP1 - CapsuleA;
-				OutTMin = STMin;
-				OutN1.Normalize();
-			}
-			else
-				return false;
-		}
-		else if (TK1 > 1.0f)
-		{
-			// On sphere (B, r)...
-
-			float STMin, STMax;
-			if (IntersectRaySphere(Ray, CapsuleB, CapsuleRadius, STMin, STMax))
-			{
-				OutP1 = Ray.Origin + (Ray.Direction * STMin);
-				OutN1 = OutP1 - CapsuleB;
-				OutTMin = STMin;
-				OutN1.Normalize();
-			}
-			else
-				return false;
-		}
-		else
-		{
-			// On the cylinder...
-			OutP1 = Ray.Origin + (Ray.Direction * TMin);
-			OutTMin = TMin;
-			FVector K1 = CapsuleA + AB * TK1;
-			OutN1           = OutP1 - K1;
-			OutN1.Normalize();
-		}
-
-		float TK2 = TMax * M + N;
-		if (TK2 < 0.0f)
-		{
-			// On sphere (A, r)...
-
-			float STMin, STMax;
-			if (IntersectRaySphere(Ray, CapsuleA, CapsuleRadius, STMin, STMax))
-			{
-				OutP2 = Ray.Origin + (Ray.Direction * STMax);
-				OutN2 = OutP2 - CapsuleA;
-				OutTMax = STMax;
-				OutN2.Normalize();
-			}
-			else
-				return false;
-		}
-		else if (TK2 > 1.0f)
-		{
-			// On sphere (B, r)...
-
-			float STMin, STMax;
-			if (IntersectRaySphere(Ray, CapsuleB, CapsuleRadius, STMin, STMax))
-			{
-				OutP2 = Ray.Origin + (Ray.Direction * STMax);
-				OutN2 = OutP2 - CapsuleB;
-				OutTMax = STMax;
-				OutN2.Normalize();
-			}
-			else
-				return false;
-		}
-		else
-		{
-			OutP2 = Ray.Origin + (Ray.Direction * TMax);
-			OutTMax = TMax;
-			FVector k2 = CapsuleA + AB * TK2;
-			OutN2           = OutP2 - k2;
-			OutN2.Normalize();
-		}
-
-		return true;
-	}
-}
-
 FAnimNode_LoogPhysics::FAnimNode_LoogPhysics()
 {
 }
@@ -272,6 +50,7 @@ void FAnimNode_LoogPhysics::EvaluateSkeletalControl_AnyThread(FComponentSpacePos
 	{
 		InitializeSimulation(Output, RequiredBones);
 		InitializeCollision(RequiredBones);
+		PreComponentTransform = Output.AnimInstanceProxy->GetComponentTransform();
 		bNeedInitializeSimulation = false;
 	}
 	const float DeltaTimeSeconds = Output.AnimInstanceProxy->GetDeltaSeconds();
@@ -282,7 +61,7 @@ void FAnimNode_LoogPhysics::EvaluateSkeletalControl_AnyThread(FComponentSpacePos
 		SimulatePhysics(Output, DeltaTimeSeconds);
 	}
 	ApplySimulateResult(Output, OutBoneTransforms);
-
+	PreComponentTransform = Output.AnimInstanceProxy->GetComponentTransform();
 }
 
 bool FAnimNode_LoogPhysics::IsValidToEvaluate(const USkeleton* Skeleton, const FBoneContainer& RequiredBones)
@@ -322,6 +101,7 @@ void FAnimNode_LoogPhysics::InitializeSimulation(FComponentSpacePoseContext& Out
 		case ELoogPhysicsParticleType::Root:
 			RuntimeParticles[ParticleIndex].BoneIndex = BoneIndex;
 			RuntimeParticles[ParticleIndex].InvMass = 0.f;
+			RuntimeParticles[ParticleIndex].BendingCompliance = ConfigParticle.BendingStructureCompliance;
 			RuntimeParticles[ParticleIndex].PrevPosition = BoneTransform.GetTranslation();
 			RuntimeParticles[ParticleIndex].Position = RuntimeParticles[ParticleIndex].PrevPosition;
 			RuntimeParticles[ParticleIndex].Velocity = FVector::Zero();
@@ -329,6 +109,7 @@ void FAnimNode_LoogPhysics::InitializeSimulation(FComponentSpacePoseContext& Out
 		case ELoogPhysicsParticleType::Bone:
 			RuntimeParticles[ParticleIndex].BoneIndex = BoneIndex;
 			RuntimeParticles[ParticleIndex].InvMass = 1.0f / ConfigParticle.Mass;
+			RuntimeParticles[ParticleIndex].BendingCompliance = ConfigParticle.BendingStructureCompliance;
 			RuntimeParticles[ParticleIndex].PrevPosition = BoneTransform.GetTranslation();
 			RuntimeParticles[ParticleIndex].Position = RuntimeParticles[ParticleIndex].PrevPosition;
 			RuntimeParticles[ParticleIndex].Velocity = FVector::Zero();
@@ -336,6 +117,7 @@ void FAnimNode_LoogPhysics::InitializeSimulation(FComponentSpacePoseContext& Out
 		case ELoogPhysicsParticleType::VirtualBone:
 			RuntimeParticles[ParticleIndex].BoneIndex = BoneIndex;
 			RuntimeParticles[ParticleIndex].InvMass = 1.0f / ConfigParticle.Mass;
+			RuntimeParticles[ParticleIndex].BendingCompliance = ConfigParticle.BendingStructureCompliance;
 			RuntimeParticles[ParticleIndex].PrevPosition = BoneTransform.TransformPosition(ConfigParticle.VirtualBoneLocalPosition);
 			RuntimeParticles[ParticleIndex].Position = RuntimeParticles[ParticleIndex].PrevPosition;
 			RuntimeParticles[ParticleIndex].Velocity = FVector::Zero();
@@ -349,11 +131,8 @@ void FAnimNode_LoogPhysics::InitializeSimulation(FComponentSpacePoseContext& Out
 	{
 		const auto& ConfigParticle = Particles[ParticleIndex];
 		const auto& ParentBoneIndex = RequiredBones.GetParentBoneIndex(RuntimeParticles[ParticleIndex].BoneIndex);
-		if (ParentBoneIndex == INDEX_NONE)
-		{
-			// impossible!
-			check(false);
-		}
+		check(ParentBoneIndex != INDEX_NONE);
+
 		switch (ConfigParticle.ParticleType)
 		{
 		case ELoogPhysicsParticleType::Root:
@@ -379,7 +158,7 @@ void FAnimNode_LoogPhysics::InitializeSimulation(FComponentSpacePoseContext& Out
 		NumOfConstraints += ClothSection.Constraints.Num();
 	}
 	
-	RuntimeConstraints.Empty(NumOfConstraints);
+	RuntimeDistanceConstraints.Empty(NumOfConstraints);
 
 	for (FLoogPhysicsClothSection& ClothSection : ClothSections)
 	{
@@ -411,7 +190,7 @@ void FAnimNode_LoogPhysics::InitializeSimulation(FComponentSpacePoseContext& Out
 					int32 ChildIndex = Chain.ParticleIndices[Idx];
 					auto& ChildRuntimeParticle = RuntimeParticles[ChildIndex];
 					auto& ChildConfigParticle = Particles[ChildIndex];
-					auto& Constraint = RuntimeConstraints.AddZeroed_GetRef();
+					auto& Constraint = RuntimeDistanceConstraints.AddZeroed_GetRef();
 					Constraint.Particle0Index = RootIndex;
 					Constraint.Particle1Index = ChildIndex;
 					Constraint.RestLength = (RootRuntimeParticle.Position - ChildRuntimeParticle.Position).Length();
@@ -429,42 +208,13 @@ void FAnimNode_LoogPhysics::InitializeSimulation(FComponentSpacePoseContext& Out
 					int32 BIndex = Chain.ParticleIndices[Idx];
 					auto& BRuntimeParticle = RuntimeParticles[BIndex];
 					auto& BConfigParticle = Particles[BIndex];
-					auto& Constraint = RuntimeConstraints.AddZeroed_GetRef();
+					auto& Constraint = RuntimeDistanceConstraints.AddZeroed_GetRef();
 					Constraint.Particle0Index = AIndex;
 					Constraint.Particle1Index = BIndex;
 					Constraint.RestLength = (ARuntimeParticle.Position - BRuntimeParticle.Position).Length();
 					Constraint.ShrinkCompliance = (AConfigParticle.LocalStructureCompliance + BConfigParticle.LocalStructureCompliance) * 0.5f;
 					Constraint.StretchCompliance = (AConfigParticle.LocalStructureCompliance + BConfigParticle.LocalStructureCompliance) * 0.5f;
 				}
-			}
-
-			{// local structure horizontal
-				int32 NextChainIndex = ChainIndex + 1;
-				if (NextChainIndex < ChainNum || ClothSection.bChainLoop)
-				{
-					if (NextChainIndex >= ChainNum)
-					{
-						NextChainIndex = 0;
-					}
-					auto& NextChain = ClothSection.Chains[NextChainIndex];
-					for (int32 Idx = 1; Idx < ChainLength; ++Idx)
-					{
-						int32 AIndex = Chain.ParticleIndices[Idx];
-						auto& ARuntimeParticle = RuntimeParticles[AIndex];
-						auto& AConfigParticle = Particles[AIndex];
-
-						int32 BIndex = NextChain.ParticleIndices[Idx];
-						auto& BRuntimeParticle = RuntimeParticles[BIndex];
-						auto& BConfigParticle = Particles[BIndex];
-						auto& Constraint = RuntimeConstraints.AddZeroed_GetRef();
-						Constraint.Particle0Index = AIndex;
-						Constraint.Particle1Index = BIndex;
-						Constraint.RestLength = (ARuntimeParticle.Position - BRuntimeParticle.Position).Length();
-						Constraint.ShrinkCompliance = (AConfigParticle.LocalStructureCompliance + BConfigParticle.LocalStructureCompliance) * 0.5f;
-						Constraint.StretchCompliance = (AConfigParticle.LocalStructureCompliance + BConfigParticle.LocalStructureCompliance) * 0.5f;
-					}
-				}
-				
 			}
 		}
 
@@ -475,7 +225,7 @@ void FAnimNode_LoogPhysics::InitializeSimulation(FComponentSpacePoseContext& Out
 
 			int32 BIndex = Con.ParticleBIndex;
 			auto& BRuntimeParticle = RuntimeParticles[BIndex];
-			auto& Constraint = RuntimeConstraints.AddZeroed_GetRef();
+			auto& Constraint = RuntimeDistanceConstraints.AddZeroed_GetRef();
 			Constraint.Particle0Index = AIndex;
 			Constraint.Particle1Index = BIndex;
 			Constraint.RestLength = (ARuntimeParticle.Position - BRuntimeParticle.Position).Length();
@@ -522,16 +272,43 @@ void FAnimNode_LoogPhysics::InitializeCollision(const FBoneContainer& RequiredBo
 void FAnimNode_LoogPhysics::SimulatePhysics(FComponentSpacePoseContext& Output, const float& DeltaTimeSeconds)
 {
 	float SimulateDeltaTime = 1.0f / FrameRate;
-	// compute how many times for simulation
-	int32 SimTimes = static_cast<int32>(DeltaTimeSeconds * FrameRate) + 1;
-	SimTimes = FMath::Min(SimTimes, MaxSimulationPerFrame);
-	for (int32 i = 0; i < SimTimes; ++i)
+	// compute how many Steps for simulation
+	int32 SimStepCount = static_cast<int32>(DeltaTimeSeconds * FrameRate) + 1;
+	SimStepCount = FMath::Min(SimStepCount, MaxSimulationPerFrame);
+	if (SimStepCount <= 0)
 	{
-		SimulateOnce(Output, SimulateDeltaTime);
+		return;
+	}
+	const auto& ComponentTransform = Output.AnimInstanceProxy->GetComponentTransform();
+	FVector PreComponentPosition = PreComponentTransform.GetTranslation();
+	FVector CurrentComponentPosition = ComponentTransform.GetTranslation();
+	FVector InvComponentTranslation = PreComponentPosition - CurrentComponentPosition;
+
+	FQuat PreComponentRotation = PreComponentTransform.GetRotation();
+	FQuat CurrentComponentRotation = ComponentTransform.GetRotation();
+	FQuat InvComponentRotation = CurrentComponentRotation.Inverse() * PreComponentRotation;
+
+	InvComponentTranslation = CurrentComponentRotation.Inverse().RotateVector(InvComponentTranslation);
+	if (InvComponentTranslation.Length() > ComponentMovementMaxDistance)
+	{
+		InvComponentTranslation = InvComponentTranslation * (ComponentMovementMaxDistance / InvComponentTranslation.Length());
+	}
+
+	float InvRotationAngle = InvComponentRotation.GetAngle();
+	if (InvRotationAngle > FMath::DegreesToRadians(ComponentMovementMaxAngle))
+	{
+		InvRotationAngle = FMath::DegreesToRadians(ComponentMovementMaxAngle);
+	}
+	FVector StepDeltaTranslation = InvComponentTranslation * ComponentMovementTranslation / SimStepCount;
+	FQuat StepDeltaRotation = FQuat(InvComponentRotation.GetRotationAxis(), InvRotationAngle * ComponentMovementRotation / SimStepCount);
+
+	for (int32 i = 0; i < SimStepCount; ++i)
+	{
+		SimulateOnce(Output, SimulateDeltaTime, StepDeltaTranslation, StepDeltaRotation);
 	}
 }
 
-void FAnimNode_LoogPhysics::SimulateOnce(FComponentSpacePoseContext& Output, const float& DeltaTimeSeconds)
+void FAnimNode_LoogPhysics::SimulateOnce(FComponentSpacePoseContext& Output, const float& DeltaTimeSeconds, const FVector& InStepDeltaTranslation, const FQuat& InStepDeltaRotation)
 {
 	// first update particle dynamic
 	const auto& ComponentTransform = Output.AnimInstanceProxy->GetComponentTransform();
@@ -556,19 +333,24 @@ void FAnimNode_LoogPhysics::SimulateOnce(FComponentSpacePoseContext& Output, con
 			{
 				const auto& BoneTransCS = Output.Pose.GetComponentSpaceTransform(RuntimeParticle.BoneIndex);
 				RuntimeParticle.Position = BoneTransCS.GetTranslation();
+				RuntimeParticle.SimRotation = BoneTransCS.GetRotation();
 			}
 			break;
 		case ELoogPhysicsParticleType::Bone:
 		case ELoogPhysicsParticleType::VirtualBone:
 			{
-				RuntimeParticle.PrevPosition = RuntimeParticle.Position;
+				// return to last step position in world space
+				FVector LastStepPosition = InStepDeltaRotation.RotateVector(RuntimeParticle.Position);
+				LastStepPosition = LastStepPosition + InStepDeltaTranslation ;
+				RuntimeParticle.PrevPosition = LastStepPosition;
+
 				FVector CurrentVelocity = GravityVelocity + WindVelocity + RuntimeParticle.Velocity * (1.0f - ConfigParticle.LinearDamping);
 				FVector::FReal CurrentVelocityMagnitude = CurrentVelocity.Length();
 				if (CurrentVelocityMagnitude > ConfigParticle.MaxVelocity)
 				{
 					CurrentVelocity = CurrentVelocity / CurrentVelocityMagnitude * ConfigParticle.MaxVelocity;
 				}
-				RuntimeParticle.Position += CurrentVelocity * DeltaTimeSeconds;
+				RuntimeParticle.Position = LastStepPosition + CurrentVelocity * DeltaTimeSeconds;
 			}
 			break;
 		case ELoogPhysicsParticleType::Max:
@@ -579,10 +361,10 @@ void FAnimNode_LoogPhysics::SimulateOnce(FComponentSpacePoseContext& Output, con
 
 	// second Update Constraint
 	float InvDeltaTimeSquared = 1.0f / (DeltaTimeSeconds * DeltaTimeSeconds);
-	for (const FLoogPhysicsRuntimeConstraint& RuntimeConstraint : RuntimeConstraints)
+	for (const FLoogPhysicsDistanceConstraint& DistanceConstraint : RuntimeDistanceConstraints)
 	{
-		auto& Particle0 = RuntimeParticles[RuntimeConstraint.Particle0Index];
-		auto& Particle1 = RuntimeParticles[RuntimeConstraint.Particle1Index];
+		auto& Particle0 = RuntimeParticles[DistanceConstraint.Particle0Index];
+		auto& Particle1 = RuntimeParticles[DistanceConstraint.Particle1Index];
 		float W = Particle0.InvMass + Particle1.InvMass;
 		if (W == 0.f)
 		{
@@ -595,8 +377,8 @@ void FAnimNode_LoogPhysics::SimulateOnce(FComponentSpacePoseContext& Output, con
 			continue;
 		}
 		FVector GradC = Delta / CurrentLength;
-		float C = CurrentLength - RuntimeConstraint.RestLength;
-		float Compliance = C > 0 ? RuntimeConstraint.ShrinkCompliance : RuntimeConstraint.StretchCompliance;
+		float C = CurrentLength - DistanceConstraint.RestLength;
+		float Compliance = C > 0 ? DistanceConstraint.ShrinkCompliance : DistanceConstraint.StretchCompliance;
 		float XPBDAlpha = Compliance * InvDeltaTimeSquared;
 		float Lambda = -C / (W + XPBDAlpha);
 
@@ -606,6 +388,67 @@ void FAnimNode_LoogPhysics::SimulateOnce(FComponentSpacePoseContext& Output, con
 		Particle1.Position -= Correction * Particle1.InvMass;
 	}
 
+	// bending constraint
+	for (int32 ParticleIndex = 0; ParticleIndex < Particles.Num(); ++ParticleIndex)
+	{
+		auto& ChildConfigParticle = Particles[ParticleIndex];
+		if (ChildConfigParticle.ParticleType == ELoogPhysicsParticleType::Root)
+		{
+			continue;
+		}
+		auto& ChildParticle = RuntimeParticles[ParticleIndex];
+		auto& ParentParticle = RuntimeParticles[ChildParticle.ParentParticleIndex];
+		float W = ChildParticle.InvMass + ParentParticle.InvMass;
+		if (W == 0.f)
+		{
+			continue;
+		}
+
+		FTransform ChildPoseLocalTransform = Output.Pose.GetLocalSpaceTransform(ChildParticle.BoneIndex);
+		
+		FVector BonePoseSimDirection = ParentParticle.SimRotation.RotateVector(ChildPoseLocalTransform.GetTranslation());
+		FVector BonePosePosition = BonePoseSimDirection + ParentParticle.Position;
+		FVector Diff = ChildParticle.Position - BonePosePosition;
+		float CurrentLength = Diff.Length();
+		if (CurrentLength < UE_KINDA_SMALL_NUMBER)
+		{
+			continue;
+		}
+		FVector GradC      = Diff / CurrentLength;
+		float   C          = CurrentLength;
+		float   XPBDAlpha  = ParentParticle.BendingCompliance * InvDeltaTimeSquared;
+		float   Lambda     = -C / (W + XPBDAlpha);
+		FVector Correction = GradC * Lambda * ChildParticle.InvMass;
+		ChildParticle.Position += Correction * ChildParticle.InvMass;
+
+		// recompute parent rotation
+		FVector BoneSimDirection = ChildParticle.Position - ParentParticle.Position;
+		if (!BoneSimDirection.Normalize())
+		{
+			continue;
+		}
+		if (!BonePoseSimDirection.Normalize())
+		{
+			continue;
+		}
+		FQuat AddRotation = FQuat::FindBetweenNormals(BonePoseSimDirection, BoneSimDirection);
+		ParentParticle.SimRotation = AddRotation * ParentParticle.SimRotation;
+		ChildParticle.SimRotation = ParentParticle.SimRotation * ChildPoseLocalTransform.GetRotation();
+
+		// FQuat AddRotation = FQuat::FindBetweenNormals(BonePoseDirection, BoneSimDirection);
+		// FQuat::FReal DiffAngle = AddRotation.GetAngle();
+		//
+		// float C = DiffAngle;
+		// float GradC = DiffAngle / FMath::Abs(DiffAngle);
+		//
+		// float XPBDAlpha = ParentParticle.BendingCompliance * InvDeltaTimeSquared;
+		// float Lambda = -C / (W + XPBDAlpha);
+		// FQuat Correction = FQuat(AddRotation.GetRotationAxis(), -GradC * Lambda * ChildParticle.InvMass);
+		//  
+		// ParentParticle.SimRotation = Correction * ParentParticle.SimRotation;
+		// ChildParticle.SimRotation = ChildPoseLocalTransform.GetRotation() * ParentParticle.SimRotation;
+		// ChildParticle.Position = ParentParticle.Position + ParentParticle.SimRotation.RotateVector(ChildPoseLocalTransform.GetTranslation());
+	}
 	// handle collision
 	if (bEnableCollision)
 	{
@@ -754,33 +597,37 @@ void FAnimNode_LoogPhysics::CollisionDetection()
 			}
 		}
 	}
-
-	
 }
 
 void FAnimNode_LoogPhysics::ApplySimulateResult(FComponentSpacePoseContext& Output, TArray<FBoneTransform>& OutBoneTransforms)
 {
-	const auto& RequiredBones = Output.AnimInstanceProxy->GetRequiredBones();
-	
 	for (int32 ParticleIndex = 0; ParticleIndex < Particles.Num(); ++ParticleIndex)
 	{
-		auto& RuntimeParticle = RuntimeParticles[ParticleIndex];
-		auto& ParentParticle = RuntimeParticles[RuntimeParticle.ParentParticleIndex];
-		FVector BoneSimDirection = RuntimeParticle.Position - ParentParticle.Position;
+		auto& ChildParticle = RuntimeParticles[ParticleIndex];
+		auto& ChildConfigParticle = Particles[ParticleIndex];
+		if (ChildConfigParticle.ParticleType == ELoogPhysicsParticleType::Root)
+		{
+			continue;
+		}
+		auto& ParentParticle = RuntimeParticles[ChildParticle.ParentParticleIndex];
+		FVector BoneSimDirection = ChildParticle.Position - ParentParticle.Position;
 		if (!BoneSimDirection.Normalize())
 		{
 			continue;
 		}
-		// const FTransform& BoneRefPoseTransform = RequiredBones.GetRefPoseTransform(RuntimeParticle.BoneIndex);
-		// float RefBoneLength = BoneRefPoseTransform.GetTranslation().Length();
+		const FTransform& BoneLocalPoseTransform = Output.Pose.GetLocalSpaceTransform(ChildParticle.BoneIndex);
 
 		FTransform        BonePoseTransform = Output.Pose.GetComponentSpaceTransform(ParentParticle.BoneIndex);
-		const FVector& DefaultForwardAxis = FVector::XAxisVector;
-		FVector           BonePoseDirection = BonePoseTransform.GetRotation().RotateVector(DefaultForwardAxis);
+		FVector ForwardAxis = BoneLocalPoseTransform.GetTranslation();
+		FVector           BonePoseDirection = BonePoseTransform.GetRotation().RotateVector(ForwardAxis);
+		if (!BonePoseDirection.Normalize())
+		{
+			continue;
+		}
 		FQuat             AddRotation = FQuat::FindBetweenNormals(BonePoseDirection, BoneSimDirection);
 		BonePoseTransform.SetRotation(AddRotation * BonePoseTransform.GetRotation());
 
-		const auto& ConfigParticle = Particles[RuntimeParticle.ParentParticleIndex];
+		const auto& ConfigParticle = Particles[ChildParticle.ParentParticleIndex];
 		switch (ConfigParticle.ParticleType)
 		{
 		case ELoogPhysicsParticleType::Root:
@@ -795,8 +642,8 @@ void FAnimNode_LoogPhysics::ApplySimulateResult(FComponentSpacePoseContext& Outp
 			}
 			break;
 		case ELoogPhysicsParticleType::Bone:
+		case ELoogPhysicsParticleType::VirtualBone:
 			{
-				
 				BonePoseTransform.SetTranslation(ParentParticle.Position);
 				if (BonePoseTransform.ContainsNaN())
 				{
@@ -805,7 +652,6 @@ void FAnimNode_LoogPhysics::ApplySimulateResult(FComponentSpacePoseContext& Outp
 				OutBoneTransforms.Add(FBoneTransform(ParentParticle.BoneIndex, BonePoseTransform));
 			}
 			break;
-		case ELoogPhysicsParticleType::VirtualBone:
 		case ELoogPhysicsParticleType::Max:
 		default:
 			break;

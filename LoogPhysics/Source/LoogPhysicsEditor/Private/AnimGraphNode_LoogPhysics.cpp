@@ -6,6 +6,8 @@
 #include "DetailWidgetRow.h"
 #include "LoogPhysicsEditMode.h"
 #include "Kismet2/CompilerResultsLog.h"
+#include "PhysicsEngine/PhysicsAsset.h"
+#include "PhysicsEngine/SkeletalBodySetup.h"
 #include "Widgets/Layout/SUniformGridPanel.h"
 
 #define LOCTEXT_NAMESPACE "LoogPhysics"
@@ -41,13 +43,14 @@ FEditorModeID UAnimGraphNode_LoogPhysics::GetEditorMode() const
 
 void UAnimGraphNode_LoogPhysics::CopyNodeDataToPreviewNode(FAnimNode_Base* AnimNode)
 {
-	FAnimNode_LoogPhysics* LoogPhysics = reinterpret_cast<FAnimNode_LoogPhysics*>(AnimNode);
-	
-	Node.ClothSections[0].Constraints;
-	for (int i = 0; i < Node.ClothSections.Num(); ++i)
-	{
-		LoogPhysics->ClothSections[i].Constraints = Node.ClothSections[i].Constraints;
-	}
+	// FAnimNode_LoogPhysics* LoogPhysics = reinterpret_cast<FAnimNode_LoogPhysics*>(AnimNode);
+	//
+	// Node.ClothSections[0].Constraints;
+	// for (int i = 0; i < Node.ClothSections.Num(); ++i)
+	// {
+	// 	LoogPhysics->ClothSections[i].Constraints = Node.ClothSections[i].Constraints;
+	// }
+	Super::CopyNodeDataToPreviewNode(AnimNode);
 }
 
 void UAnimGraphNode_LoogPhysics::CustomizeDetails(IDetailLayoutBuilder& DetailBuilder)
@@ -59,22 +62,6 @@ void UAnimGraphNode_LoogPhysics::CustomizeDetails(IDetailLayoutBuilder& DetailBu
 		[
 			SNew(SUniformGridPanel)
 				.SlotPadding(FMargin(2, 0, 2, 0))
-				// + SUniformGridPanel::Slot(0, 0)
-				// [
-				// 	SNew(SButton)
-				// 		.HAlign(HAlign_Center)
-				// 		.VAlign(VAlign_Center)
-				// 		.OnClicked_Lambda([this]()
-				// 			{
-				// 				this->CreateStructureConstraints();
-				// 				return FReply::Handled();
-				// 			})
-				// 		.Content()
-				// 		[
-				// 			SNew(STextBlock)
-				// 				.Text(FText::FromString(TEXT("CreateStructureConstraints")))
-				// 		]
-				// ]
 				+ SUniformGridPanel::Slot(0, 0)
 				[
 					SNew(SButton)
@@ -82,15 +69,31 @@ void UAnimGraphNode_LoogPhysics::CustomizeDetails(IDetailLayoutBuilder& DetailBu
 						.VAlign(VAlign_Center)
 						.OnClicked_Lambda([this]()
 							{
-								this->CreateBendingConstraints();
+								this->CreateParticlesAndConstraints();
 								return FReply::Handled();
 							})
 						.Content()
 						[
 							SNew(STextBlock)
-								.Text(FText::FromString(TEXT("CreateBendingConstraints")))
+								.Text(FText::FromString(TEXT("CreateParticlesAndConstraints")))
 						]
 				]
+				// + SUniformGridPanel::Slot(0, 0)
+				// [
+				// 	SNew(SButton)
+				// 		.HAlign(HAlign_Center)
+				// 		.VAlign(VAlign_Center)
+				// 		.OnClicked_Lambda([this]()
+				// 			{
+				// 				this->CreateBendingConstraints();
+				// 				return FReply::Handled();
+				// 			})
+				// 		.Content()
+				// 		[
+				// 			SNew(STextBlock)
+				// 				.Text(FText::FromString(TEXT("CreateBendingConstraints")))
+				// 		]
+				// ]
 				+ SUniformGridPanel::Slot(0, 1)
 				[
 					SNew(SButton)
@@ -148,13 +151,127 @@ void UAnimGraphNode_LoogPhysics::Serialize(FArchive& Ar)
 {
 	Super::Serialize(Ar);
 }
-void UAnimGraphNode_LoogPhysics::CreateStructureConstraints()
+void UAnimGraphNode_LoogPhysics::CreateParticlesAndConstraints()
 {
-	for (FLoogPhysicsClothSection& ClothSection : Node.ClothSections)
+	if (!SkeletalMesh)
 	{
+		return;
+	}
+	Node.ClothSections.Empty(BoneSections.Num());
+	Node.Particles.Empty();
+	auto& RefSkeleton = SkeletalMesh->GetRefSkeleton();
 
+	for (FLoogPhysicsBoneSection& BoneSection : BoneSections)
+	{
+		auto& ClothSection = Node.ClothSections.AddDefaulted_GetRef();
+		for (FLoogPhysicsBoneChain& BoneChain : BoneSection.BoneChains)
+		{
+			// RefSkeleton.gechild()
+			auto& RootBoneName = BoneChain.RootBone.BoneName;
+			int32 RootBoneIndex = RefSkeleton.FindBoneIndex(RootBoneName);
+			int32 EndBoneIndex = RefSkeleton.FindBoneIndex(BoneChain.EndBone.BoneName);
+			if (EndBoneIndex == INDEX_NONE || RootBoneIndex == INDEX_NONE)
+			{
+				continue;
+			}
+			int32 TempBoneIndex = EndBoneIndex;
+			TArray<FName> BoneNames;
+			while (true)
+			{
+				FName TempBoneInfo = RefSkeleton.GetBoneName(TempBoneIndex);
+				BoneNames.Add(TempBoneInfo);
+				TempBoneIndex = RefSkeleton.GetParentIndex(TempBoneIndex);
+				if (TempBoneIndex == RootBoneIndex)
+				{
+					// Stop loop
+					BoneNames.Add(RootBoneName);
+					break;
+				}
+				if (TempBoneIndex == INDEX_NONE)
+				{
+					// error, stop loop and clear BoneNames
+					BoneNames.Empty();
+					break;
+				}
+			}
+			if (BoneNames.Num() > 0)
+			{
+				auto& ClothChain = ClothSection.Chains.AddDefaulted_GetRef();
+				ClothChain.ParticleIndices.Empty(BoneNames.Num());
+				for (int32 i = BoneNames.Num() - 1; i >= 0; --i)
+				{
+					ClothChain.ParticleIndices.Add(Node.Particles.Num());
+					auto& Particle = Node.Particles.AddDefaulted_GetRef();
+					Particle.BindBone.BoneName = BoneNames[i];
+					if (i == BoneNames.Num() - 1)
+					{
+						Particle.ParticleType = ELoogPhysicsParticleType::Root;
+					}
+					else
+					{
+						Particle.ParticleType = ELoogPhysicsParticleType::Bone;
+					}
+					Particle.Mass = BoneChain.Mass;
+					Particle.Thickness = BoneChain.Thickness;
+				}
+				if (BoneChain.VirtualBoneLength > 0.f)
+				{
+					ClothChain.ParticleIndices.Add(Node.Particles.Num());
+					auto& Particle = Node.Particles.AddDefaulted_GetRef();
+					Particle.BindBone.BoneName = BoneNames[0];
+					Particle.ParticleType = ELoogPhysicsParticleType::VirtualBone;
+					Particle.VirtualBoneLocalPosition = FVector(BoneChain.VirtualBoneLength, 0.f, 0.f);
+					Particle.Mass = BoneChain.Mass;
+					Particle.Thickness = BoneChain.Thickness;
+				}
+			}
+		}
+	}
 
+	int32 SectionCount = BoneSections.Num();
+	for (int32 SectionIndex = 0; SectionIndex < SectionCount; ++SectionIndex)
+	{
+		FLoogPhysicsBoneSection&  BoneSection  = BoneSections[SectionIndex];
+		FLoogPhysicsClothSection& ClothSection = Node.ClothSections[SectionIndex];
+		if (BoneSection.bNeedConnectChains)
+		{
+			int32 ChainNum = ClothSection.Chains.Num();
+			for (int32 ChainIndex = 0; ChainIndex < ChainNum; ++ChainIndex)
+			{
+				auto& Chain = ClothSection.Chains[ChainIndex];
+				int32 ChainLength = Chain.ParticleIndices.Num();
+				{// local structure horizontal
+					int32 NextChainIndex = ChainIndex + 1;
+					if (NextChainIndex < ChainNum || BoneSection.bChainLoop)
+					{
+						if (NextChainIndex >= ChainNum)
+						{
+							NextChainIndex = 0;
+						}
+						auto& NextChain = ClothSection.Chains[NextChainIndex];
+						for (int32 Idx = 1; Idx < ChainLength; ++Idx)
+						{
+							int32 AIndex = Chain.ParticleIndices[Idx];
+							int32 BIndex = NextChain.ParticleIndices[Idx];
+							auto& Constraint = ClothSection.Constraints.AddDefaulted_GetRef();
+							Constraint.ParticleAIndex = AIndex;
+							Constraint.ParticleBIndex = BIndex;
 
+							auto& AConfigParticle = Node.Particles[AIndex];
+							auto& BConfigParticle = Node.Particles[BIndex];
+							Constraint.ShrinkCompliance = (AConfigParticle.LocalStructureCompliance + BConfigParticle.LocalStructureCompliance) * 0.5f;
+							Constraint.StretchCompliance = (AConfigParticle.LocalStructureCompliance + BConfigParticle.LocalStructureCompliance) * 0.5f;
+							if (BoneSection.bConnectChainsCollision)
+							{
+								auto& Collider = ClothSection.Colliders.AddDefaulted_GetRef();
+								Collider.Particle0Index = AIndex;
+								Collider.Particle1Index = BIndex;
+							}
+						}
+					}
+				}
+			}
+		}
 	}
 }
 
@@ -167,49 +284,49 @@ void UAnimGraphNode_LoogPhysics::CreateShearConstraints()
 		return;
 	}
 
-	for (FLoogPhysicsClothSection& ClothSection : Node.ClothSections)
-	{
-		int32 ChainNum = ClothSection.Chains.Num();
-
-		for (int32 ChainIndex = 0; ChainIndex < ChainNum; ++ChainIndex)
-		{
-			auto& Chain = ClothSection.Chains[ChainIndex];
-			int32 ChainLength = Chain.ParticleIndices.Num();
-
-			int32 NextChainIndex = ChainIndex + 1;
-			if (NextChainIndex < ChainNum || ClothSection.bChainLoop)
-			{
-				if (NextChainIndex >= ChainNum)
-				{
-					NextChainIndex = 0;
-				}
-				auto& NextChain = ClothSection.Chains[NextChainIndex];
-				for (int32 Idx = 1; Idx < ChainLength; ++Idx)
-				{
-					{// left top - right bottom
-						int32 AIndex = Chain.ParticleIndices[Idx - 1];
-						int32 BIndex = NextChain.ParticleIndices[Idx];
-
-						auto& Constraint = ClothSection.Constraints.AddDefaulted_GetRef();
-						Constraint.ParticleAIndex = AIndex;
-						Constraint.ParticleBIndex = BIndex;
-						Constraint.ShrinkCompliance = ShrinkCompliance;
-						Constraint.StretchCompliance = StretchCompliance;
-					}
-					{ // left bottom - right top
-						int32 AIndex = Chain.ParticleIndices[Idx];
-						int32 BIndex = NextChain.ParticleIndices[Idx - 1];
-
-						auto& Constraint = ClothSection.Constraints.AddDefaulted_GetRef();
-						Constraint.ParticleAIndex = AIndex;
-						Constraint.ParticleBIndex = BIndex;
-						Constraint.ShrinkCompliance = ShrinkCompliance;
-						Constraint.StretchCompliance = StretchCompliance;
-					}
-				}
-			}
-		}
-	}
+	// for (FLoogPhysicsClothSection& ClothSection : Node.ClothSections)
+	// {
+	// 	int32 ChainNum = ClothSection.Chains.Num();
+	//
+	// 	for (int32 ChainIndex = 0; ChainIndex < ChainNum; ++ChainIndex)
+	// 	{
+	// 		auto& Chain = ClothSection.Chains[ChainIndex];
+	// 		int32 ChainLength = Chain.ParticleIndices.Num();
+	//
+	// 		int32 NextChainIndex = ChainIndex + 1;
+	// 		if (NextChainIndex < ChainNum || ClothSection.bChainLoop)
+	// 		{
+	// 			if (NextChainIndex >= ChainNum)
+	// 			{
+	// 				NextChainIndex = 0;
+	// 			}
+	// 			auto& NextChain = ClothSection.Chains[NextChainIndex];
+	// 			for (int32 Idx = 1; Idx < ChainLength; ++Idx)
+	// 			{
+	// 				{// left top - right bottom
+	// 					int32 AIndex = Chain.ParticleIndices[Idx - 1];
+	// 					int32 BIndex = NextChain.ParticleIndices[Idx];
+	//
+	// 					auto& Constraint = ClothSection.Constraints.AddDefaulted_GetRef();
+	// 					Constraint.ParticleAIndex = AIndex;
+	// 					Constraint.ParticleBIndex = BIndex;
+	// 					Constraint.ShrinkCompliance = ShrinkCompliance;
+	// 					Constraint.StretchCompliance = StretchCompliance;
+	// 				}
+	// 				{ // left bottom - right top
+	// 					int32 AIndex = Chain.ParticleIndices[Idx];
+	// 					int32 BIndex = NextChain.ParticleIndices[Idx - 1];
+	//
+	// 					auto& Constraint = ClothSection.Constraints.AddDefaulted_GetRef();
+	// 					Constraint.ParticleAIndex = AIndex;
+	// 					Constraint.ParticleBIndex = BIndex;
+	// 					Constraint.ShrinkCompliance = ShrinkCompliance;
+	// 					Constraint.StretchCompliance = StretchCompliance;
+	// 				}
+	// 			}
+	// 		}
+	// 	}
+	// }
 }
 
 void UAnimGraphNode_LoogPhysics::CreateBendingConstraints()
@@ -220,56 +337,56 @@ void UAnimGraphNode_LoogPhysics::CreateBendingConstraints()
 		FMessageDialog::Open(EAppMsgType::Ok, FText::FromString(ErrorString));
 		return;
 	}
-	for (FLoogPhysicsClothSection& ClothSection : Node.ClothSections)
-	{
-		int32 ChainNum = ClothSection.Chains.Num();
-
-		for (int32 ChainIndex = 0; ChainIndex < ChainNum; ++ChainIndex)
-		{
-			auto& Chain = ClothSection.Chains[ChainIndex];
-			int32 ChainLength = Chain.ParticleIndices.Num();
-
-			if (bBendingVertical)
-			{
-				for (int32 Idx = 2; Idx < ChainLength; ++Idx)
-				{
-					int32 AIndex = Chain.ParticleIndices[Idx - 2];
-					int32 BIndex = Chain.ParticleIndices[Idx];
-
-					auto& Constraint = ClothSection.Constraints.AddDefaulted_GetRef();
-					Constraint.ParticleAIndex = AIndex;
-					Constraint.ParticleBIndex = BIndex;
-					Constraint.ShrinkCompliance = ShrinkCompliance;
-					Constraint.StretchCompliance = StretchCompliance;
-				}
-			}
-			
-			if (bBendingHorizontal)
-			{
-				int32 NextChainIndex = ChainIndex + 2;
-				if (NextChainIndex < ChainNum || ClothSection.bChainLoop)
-				{
-					if (NextChainIndex >= ChainNum)
-					{
-						NextChainIndex = FMath::Modulo(NextChainIndex, ChainNum);
-					}
-					auto& NextChain = ClothSection.Chains[NextChainIndex];
-					for (int32 Idx = 1; Idx < ChainLength; ++Idx)
-					{
-						int32 AIndex = Chain.ParticleIndices[Idx];
-						int32 BIndex = NextChain.ParticleIndices[Idx];
-
-						auto& Constraint = ClothSection.Constraints.AddDefaulted_GetRef();
-						Constraint.ParticleAIndex = AIndex;
-						Constraint.ParticleBIndex = BIndex;
-						Constraint.ShrinkCompliance = ShrinkCompliance;
-						Constraint.StretchCompliance = StretchCompliance;
-					}
-				}
-			}
-			
-		}
-	}
+	// for (FLoogPhysicsClothSection& ClothSection : Node.ClothSections)
+	// {
+	// 	int32 ChainNum = ClothSection.Chains.Num();
+	//
+	// 	for (int32 ChainIndex = 0; ChainIndex < ChainNum; ++ChainIndex)
+	// 	{
+	// 		auto& Chain = ClothSection.Chains[ChainIndex];
+	// 		int32 ChainLength = Chain.ParticleIndices.Num();
+	//
+	// 		if (bBendingVertical)
+	// 		{
+	// 			for (int32 Idx = 2; Idx < ChainLength; ++Idx)
+	// 			{
+	// 				int32 AIndex = Chain.ParticleIndices[Idx - 2];
+	// 				int32 BIndex = Chain.ParticleIndices[Idx];
+	//
+	// 				auto& Constraint = ClothSection.Constraints.AddDefaulted_GetRef();
+	// 				Constraint.ParticleAIndex = AIndex;
+	// 				Constraint.ParticleBIndex = BIndex;
+	// 				Constraint.ShrinkCompliance = ShrinkCompliance;
+	// 				Constraint.StretchCompliance = StretchCompliance;
+	// 			}
+	// 		}
+	// 		
+	// 		if (bBendingHorizontal)
+	// 		{
+	// 			int32 NextChainIndex = ChainIndex + 2;
+	// 			if (NextChainIndex < ChainNum || ClothSection.bChainLoop)
+	// 			{
+	// 				if (NextChainIndex >= ChainNum)
+	// 				{
+	// 					NextChainIndex = FMath::Modulo(NextChainIndex, ChainNum);
+	// 				}
+	// 				auto& NextChain = ClothSection.Chains[NextChainIndex];
+	// 				for (int32 Idx = 1; Idx < ChainLength; ++Idx)
+	// 				{
+	// 					int32 AIndex = Chain.ParticleIndices[Idx];
+	// 					int32 BIndex = NextChain.ParticleIndices[Idx];
+	//
+	// 					auto& Constraint = ClothSection.Constraints.AddDefaulted_GetRef();
+	// 					Constraint.ParticleAIndex = AIndex;
+	// 					Constraint.ParticleBIndex = BIndex;
+	// 					Constraint.ShrinkCompliance = ShrinkCompliance;
+	// 					Constraint.StretchCompliance = StretchCompliance;
+	// 				}
+	// 			}
+	// 		}
+	// 		
+	// 	}
+	// }
 }
 
 void UAnimGraphNode_LoogPhysics::RemoveConstraints()

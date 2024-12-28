@@ -6,6 +6,47 @@
 
 #include "AnimGraphNode_LoogPhysics.generated.h"
 
+
+USTRUCT()
+struct FLoogPhysicsBoneChain
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere)
+	FBoneReference RootBone;
+
+	UPROPERTY(EditAnywhere)
+	FBoneReference EndBone;
+
+	UPROPERTY(EditAnywhere)
+	float VirtualBoneLength = 10.0f;
+
+	UPROPERTY(EditAnywhere)
+	float Mass = 1.0f;
+
+	UPROPERTY(EditAnywhere)
+	float Thickness = 1.0f;
+};
+
+
+USTRUCT()
+struct FLoogPhysicsBoneSection
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere)
+	TArray<FLoogPhysicsBoneChain> BoneChains;
+
+	UPROPERTY(EditAnywhere)
+	bool bNeedConnectChains = true;
+
+	UPROPERTY(EditAnywhere)
+	bool bChainLoop = true;
+
+	UPROPERTY(EditAnywhere)
+	bool bConnectChainsCollision = true;
+};
+
 UCLASS()
 class UAnimGraphNode_LoogPhysics : public UAnimGraphNode_SkeletalControlBase
 {
@@ -40,6 +81,15 @@ protected:
 
 public:
 	UPROPERTY(EditAnywhere, Category = "Loog Physics Tools")
+	TObjectPtr<USkeletalMesh> SkeletalMesh;
+
+	UPROPERTY(EditAnywhere, Category = "Loog Physics Tools")
+	TArray<FLoogPhysicsBoneSection> BoneSections;
+
+	// UPROPERTY(EditAnywhere, Category = "Loog Physics Tools")
+	// TObjectPtr<UPhysicsAsset> PhysicsAsset;
+
+	UPROPERTY(EditAnywhere, Category = "Loog Physics Tools")
 	float ShrinkCompliance = 0.01f;
 
 	UPROPERTY(EditAnywhere, Category = "Loog Physics Tools")
@@ -60,7 +110,7 @@ private:
 	/** Constructing FText strings can be costly, so we cache the node's title */
 	FNodeTitleTextTable CachedNodeTitles;
 
-	void CreateStructureConstraints();
+	void CreateParticlesAndConstraints();
 
 	void CreateShearConstraints();
 

@@ -1,4 +1,4 @@
-﻿// Copyright LoogLong. All Rights Reserved.
+// Copyright LoogLong. All Rights Reserved.
 #pragma once
 #include "CoreMinimal.h"
 #include "BoneContainer.h"
@@ -61,6 +61,9 @@ struct FLoogPhysicsParticle
 
 	UPROPERTY(EditAnywhere)
 	float LocalStructureCompliance = 0.01f;
+
+	UPROPERTY(EditAnywhere)
+	float BendingStructureCompliance = 0.01f;
 
 	UPROPERTY(EditAnywhere)
 	float MaxVelocity = 1000.f;
@@ -131,9 +134,6 @@ struct FLoogPhysicsClothSection
 	FString SectionName;
 
 	UPROPERTY(EditAnywhere)
-	bool bChainLoop = true;
-
-	UPROPERTY(EditAnywhere)
 	TArray<FLoogPhysicsChain> Chains;
 
 	UPROPERTY(EditAnywhere)
@@ -147,15 +147,17 @@ struct FLoogPhysicsRuntimeParticle
 {
 	FCompactPoseBoneIndex BoneIndex;
 	float InvMass;
+	float BendingCompliance;
 	int32 ParentParticleIndex;
 
 	FVector PrevPosition;
 	FVector Position;
 	FVector Velocity;
 
+	FQuat SimRotation;
 };
 
-struct FLoogPhysicsRuntimeConstraint
+struct FLoogPhysicsDistanceConstraint
 {
 	int32 Particle0Index;
 	int32 Particle1Index;
@@ -164,6 +166,15 @@ struct FLoogPhysicsRuntimeConstraint
 	float ShrinkCompliance;
 	float StretchCompliance;
 };
+
+struct FLoogPhysicsBendingConstraint
+{
+	int32 Particle0Index;
+	int32 Particle1Index;
+
+	float Compliance;
+};
+
 
 struct FLoogPhysicsCapsule
 {
@@ -188,7 +199,7 @@ public:
 	TArray<FLoogPhysicsClothSection> ClothSections;
 
 	UPROPERTY(EditAnywhere, Category = "SimulationSetting")
-	float FrameRate = 30.f;
+	float FrameRate = 60.f;
 
 	UPROPERTY(EditAnywhere, Category = "SimulationSetting")
 	int32 MaxSimulationPerFrame = 2;
@@ -220,12 +231,17 @@ public:
 	UPROPERTY(EditAnywhere, Category = "ComponentMovenent")
 	float ComponentMovementTranslation = 0.2;
 
+	UPROPERTY(EditAnywhere, Category = "ComponentMovenent")
+	float ComponentMovementMaxDistance = 100.f;
+
+	UPROPERTY(EditAnywhere, Category = "ComponentMovenent")
+	float ComponentMovementMaxAngle = 30.f;
+
 	UPROPERTY(EditAnywhere, Category = "Collision")
 	bool bEnableCollision = false;
 
 	UPROPERTY(EditAnywhere, Category = "Collision")
 	TObjectPtr<UPhysicsAsset> PhysicsAsset;
-
 public:
 	friend class FLoogPhysicsEditMode;
 	FAnimNode_LoogPhysics();
@@ -259,7 +275,7 @@ private:
 	void InitializeSimulation(FComponentSpacePoseContext& Output, const FBoneContainer& RequiredBones);
 	void InitializeCollision(const FBoneContainer& RequiredBones);
 	void SimulatePhysics(FComponentSpacePoseContext& Output, const float& DeltaTimeSeconds);
-	void SimulateOnce(FComponentSpacePoseContext& Output, const float& DeltaTimeSeconds);
+	void SimulateOnce(FComponentSpacePoseContext& Output, const float& DeltaTimeSeconds, const FVector& InStepDeltaTranslation, const FQuat& InStepDeltaRotation);
 
 	void UpdateCollision(FComponentSpacePoseContext& Output, const FBoneContainer& RequiredBones);
 	void CollisionDetection();
@@ -273,10 +289,10 @@ private:
 	void ApplySimulateResult(FComponentSpacePoseContext& Output, TArray<FBoneTransform>& OutBoneTransforms);
 
 	TArray<FLoogPhysicsRuntimeParticle> RuntimeParticles;
-	TArray<FLoogPhysicsRuntimeConstraint> RuntimeConstraints;
-	TArray<FKTaperedCapsuleElem> SetupColliders;
+	TArray<FLoogPhysicsDistanceConstraint> RuntimeDistanceConstraints;
+	TArray<FLoogPhysicsBendingConstraint> RuntimeBendingConstraints;
 	TArray<FLoogPhysicsCapsule> RuntimeColliders;
-
+	TArray<FKTaperedCapsuleElem> SetupColliders;
 
 	int32 MaxChainLength = 0;
 	float WindSinCounter = 0.f;
