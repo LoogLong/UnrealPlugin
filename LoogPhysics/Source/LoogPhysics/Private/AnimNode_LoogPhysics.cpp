@@ -87,150 +87,84 @@ void FAnimNode_LoogPhysics::InitializeBoneReferences(const FBoneContainer& Requi
 
 void FAnimNode_LoogPhysics::InitializeSimulation(FComponentSpacePoseContext& Output, const FBoneContainer& RequiredBones)
 {
-	RuntimeParticles.Empty(Particles.Num());
-	RuntimeParticles.AddZeroed(Particles.Num());
-	TMap<FCompactPoseBoneIndex, int32> BoneIndexToParticleIndex;
 	for (int32 ParticleIndex = 0; ParticleIndex < Particles.Num(); ++ParticleIndex)
 	{
-		const auto& ConfigParticle = Particles[ParticleIndex];
-		FCompactPoseBoneIndex BoneIndex = ConfigParticle.BindBone.GetCompactPoseIndex(RequiredBones);
-		BoneIndexToParticleIndex.Add(BoneIndex, ParticleIndex);
+		auto& Particle = Particles[ParticleIndex];
+		FCompactPoseBoneIndex BoneIndex = Particle.BindBone.GetCompactPoseIndex(RequiredBones);
 		const auto& BoneTransform = Output.Pose.GetComponentSpaceTransform(BoneIndex);
-		switch (ConfigParticle.ParticleType)
+		switch (Particle.ParticleType)
 		{
 		case ELoogPhysicsParticleType::Root:
-			RuntimeParticles[ParticleIndex].BoneIndex = BoneIndex;
-			RuntimeParticles[ParticleIndex].InvMass = 0.f;
-			RuntimeParticles[ParticleIndex].BendingCompliance = ConfigParticle.BendingStructureCompliance;
-			RuntimeParticles[ParticleIndex].PrevPosition = BoneTransform.GetTranslation();
-			RuntimeParticles[ParticleIndex].Position = RuntimeParticles[ParticleIndex].PrevPosition;
-			RuntimeParticles[ParticleIndex].Velocity = FVector::Zero();
+			Particle.InvMass = 0.f;
+			Particle.PrevPosition = BoneTransform.GetTranslation();
+			Particle.Position = Particle.PrevPosition;
+			Particle.Velocity = FVector::Zero();
 			break;
 		case ELoogPhysicsParticleType::Bone:
-			RuntimeParticles[ParticleIndex].BoneIndex = BoneIndex;
-			RuntimeParticles[ParticleIndex].InvMass = 1.0f / ConfigParticle.Mass;
-			RuntimeParticles[ParticleIndex].BendingCompliance = ConfigParticle.BendingStructureCompliance;
-			RuntimeParticles[ParticleIndex].PrevPosition = BoneTransform.GetTranslation();
-			RuntimeParticles[ParticleIndex].Position = RuntimeParticles[ParticleIndex].PrevPosition;
-			RuntimeParticles[ParticleIndex].Velocity = FVector::Zero();
+			Particle.InvMass = 1.0f / Particle.Mass;
+			Particle.PrevPosition = BoneTransform.GetTranslation();
+			Particle.Position = Particle.PrevPosition;
+			Particle.Velocity = FVector::Zero();
 			break;
 		case ELoogPhysicsParticleType::VirtualBone:
-			RuntimeParticles[ParticleIndex].BoneIndex = BoneIndex;
-			RuntimeParticles[ParticleIndex].InvMass = 1.0f / ConfigParticle.Mass;
-			RuntimeParticles[ParticleIndex].BendingCompliance = ConfigParticle.BendingStructureCompliance;
-			RuntimeParticles[ParticleIndex].PrevPosition = BoneTransform.TransformPosition(ConfigParticle.VirtualBoneLocalPosition);
-			RuntimeParticles[ParticleIndex].Position = RuntimeParticles[ParticleIndex].PrevPosition;
-			RuntimeParticles[ParticleIndex].Velocity = FVector::Zero();
+			Particle.InvMass = 1.0f / Particle.Mass;
+			Particle.PrevPosition = BoneTransform.TransformPosition(Particle.VirtualBoneLocalPosition);
+			Particle.Position = Particle.PrevPosition;
+			Particle.Velocity = FVector::Zero();
 			break;
 		case ELoogPhysicsParticleType::Max:
 		default:
 			break;
 		}
-	}
-	for (int32 ParticleIndex = 0; ParticleIndex < Particles.Num(); ++ParticleIndex)
-	{
-		const auto& ConfigParticle = Particles[ParticleIndex];
-		const auto& ParentBoneIndex = RequiredBones.GetParentBoneIndex(RuntimeParticles[ParticleIndex].BoneIndex);
-		check(ParentBoneIndex != INDEX_NONE);
-
-		switch (ConfigParticle.ParticleType)
-		{
-		case ELoogPhysicsParticleType::Root:
-			break;
-		case ELoogPhysicsParticleType::Bone:
-			RuntimeParticles[ParticleIndex].ParentParticleIndex = BoneIndexToParticleIndex[ParentBoneIndex];
-			break;
-		case ELoogPhysicsParticleType::VirtualBone:
-		case ELoogPhysicsParticleType::Max:
-		default:
-			break;
-		}
-	}
-
-	// first calculate constraints num
-	int32 NumOfConstraints = 0;
-	for (FLoogPhysicsClothSection& ClothSection : ClothSections)
-	{
-		for (auto& Chain : ClothSection.Chains)
-		{
-			NumOfConstraints += (Chain.ParticleIndices.Num() - 1) * 2;
-		}
-		NumOfConstraints += ClothSection.Constraints.Num();
 	}
 	
-	RuntimeDistanceConstraints.Empty(NumOfConstraints);
-
 	for (FLoogPhysicsClothSection& ClothSection : ClothSections)
 	{
-		int32 ChainLength = ClothSection.Chains[0].ParticleIndices.Num();
-		for (int32 i = 1; i < ClothSection.Chains.Num(); ++i)
+		for (const auto& Chain : ClothSection.Chains)
 		{
-			if (ClothSection.Chains[i].ParticleIndices.Num() != ChainLength)
+			for (int32 i = 1; i < Chain.ParticleIndices.Num(); ++i)
 			{
-				FString ErrorString = FString::Printf(TEXT("Chain Length Must The Same!"));
-				FMessageDialog::Open(EAppMsgType::Ok, FText::FromString(ErrorString));
-				return;
-			}
-		}
-	}
-	for (FLoogPhysicsClothSection& ClothSection : ClothSections)
-	{
-		int32 ChainNum = ClothSection.Chains.Num();
-		
-		for (int32 ChainIndex = 0; ChainIndex < ChainNum; ++ChainIndex)
-		{
-			auto& Chain = ClothSection.Chains[ChainIndex];
-			int32 ChainLength = Chain.ParticleIndices.Num();
-			{ // global structure
-				int32 RootIndex = Chain.ParticleIndices[Chain.RootParticleIndex];
-				auto& RootRuntimeParticle = RuntimeParticles[RootIndex];
-				auto& RootConfigParticle = Particles[RootIndex];
-				for (int32 Idx = 1; Idx < ChainLength; ++Idx)
-				{
-					int32 ChildIndex = Chain.ParticleIndices[Idx];
-					auto& ChildRuntimeParticle = RuntimeParticles[ChildIndex];
-					auto& ChildConfigParticle = Particles[ChildIndex];
-					auto& Constraint = RuntimeDistanceConstraints.AddZeroed_GetRef();
-					Constraint.Particle0Index = RootIndex;
-					Constraint.Particle1Index = ChildIndex;
-					Constraint.RestLength = (RootRuntimeParticle.Position - ChildRuntimeParticle.Position).Length();
-					Constraint.ShrinkCompliance = (RootConfigParticle.GlobalStructureCompliance + ChildConfigParticle.GlobalStructureCompliance) * 0.5f;
-					Constraint.StretchCompliance = (RootConfigParticle.GlobalStructureCompliance + ChildConfigParticle.GlobalStructureCompliance) * 0.5f;
-				}
-			}
-			{// local structure vertical
-				for (int32 Idx = 1; Idx < ChainLength; ++Idx)
-				{
-					int32 AIndex = Chain.ParticleIndices[Idx - 1];
-					auto& ARuntimeParticle = RuntimeParticles[AIndex];
-					auto& AConfigParticle = Particles[AIndex];
-
-					int32 BIndex = Chain.ParticleIndices[Idx];
-					auto& BRuntimeParticle = RuntimeParticles[BIndex];
-					auto& BConfigParticle = Particles[BIndex];
-					auto& Constraint = RuntimeDistanceConstraints.AddZeroed_GetRef();
-					Constraint.Particle0Index = AIndex;
-					Constraint.Particle1Index = BIndex;
-					Constraint.RestLength = (ARuntimeParticle.Position - BRuntimeParticle.Position).Length();
-					Constraint.ShrinkCompliance = (AConfigParticle.LocalStructureCompliance + BConfigParticle.LocalStructureCompliance) * 0.5f;
-					Constraint.StretchCompliance = (AConfigParticle.LocalStructureCompliance + BConfigParticle.LocalStructureCompliance) * 0.5f;
-				}
+				const int32& ParticleIndex = Chain.ParticleIndices[i];
+				Particles[ParticleIndex].ParentParticleIndex = Chain.ParticleIndices[i - 1];
 			}
 		}
 
-		for (FLoogPhysicsConstraint& Con : ClothSection.Constraints)
+		for (FLoogPhysicsConstraint& Con : ClothSection.LocalVerticalConstraints)
 		{
 			int32 AIndex = Con.ParticleAIndex;
-			auto& ARuntimeParticle = RuntimeParticles[AIndex];
+			auto& ARuntimeParticle = Particles[AIndex];
 
 			int32 BIndex = Con.ParticleBIndex;
-			auto& BRuntimeParticle = RuntimeParticles[BIndex];
-			auto& Constraint = RuntimeDistanceConstraints.AddZeroed_GetRef();
-			Constraint.Particle0Index = AIndex;
-			Constraint.Particle1Index = BIndex;
-			Constraint.RestLength = (ARuntimeParticle.Position - BRuntimeParticle.Position).Length();
-			Constraint.ShrinkCompliance = Con.ShrinkCompliance;
-			Constraint.StretchCompliance = Con.StretchCompliance;
+			auto& BRuntimeParticle = Particles[BIndex];
+			Con.RestLength = (ARuntimeParticle.Position - BRuntimeParticle.Position).Length();
+		}
+		for (FLoogPhysicsConstraint& Con : ClothSection.GlobalStructureConstraints)
+		{
+			int32 AIndex = Con.ParticleAIndex;
+			auto& ARuntimeParticle = Particles[AIndex];
+
+			int32 BIndex = Con.ParticleBIndex;
+			auto& BRuntimeParticle = Particles[BIndex];
+			Con.RestLength = (ARuntimeParticle.Position - BRuntimeParticle.Position).Length();
+		}
+
+		for (FLoogPhysicsConstraint& Con : ClothSection.BendingStructureConstraints)
+		{
+			int32 AIndex = Con.ParticleAIndex;
+			auto& ARuntimeParticle = Particles[AIndex];
+
+			int32 BIndex = Con.ParticleBIndex;
+			auto& BRuntimeParticle = Particles[BIndex];
+			Con.RestLength = (ARuntimeParticle.Position - BRuntimeParticle.Position).Length();
+		}
+		for (FLoogPhysicsConstraint& Con : ClothSection.LocalHorizontalConstraints)
+		{
+			int32 AIndex = Con.ParticleAIndex;
+			auto& ARuntimeParticle = Particles[AIndex];
+
+			int32 BIndex = Con.ParticleBIndex;
+			auto& BRuntimeParticle = Particles[BIndex];
+			Con.RestLength = (ARuntimeParticle.Position - BRuntimeParticle.Position).Length();
 		}
 	}
 }
@@ -312,6 +246,7 @@ void FAnimNode_LoogPhysics::SimulateOnce(FComponentSpacePoseContext& Output, con
 {
 	// first update particle dynamic
 	const auto& ComponentTransform = Output.AnimInstanceProxy->GetComponentTransform();
+	const auto& RequiredBones = Output.AnimInstanceProxy->GetRequiredBones();
 	FVector GravityVelocity = ComponentTransform.InverseTransformVectorNoScale(GravityWorldSpace) * DeltaTimeSeconds;
 
 	FVector WindVelocity = FVector::Zero();
@@ -326,12 +261,12 @@ void FAnimNode_LoogPhysics::SimulateOnce(FComponentSpacePoseContext& Output, con
 	for (int32 ParticleIndex = 0; ParticleIndex < Particles.Num(); ++ParticleIndex)
 	{
 		const auto& ConfigParticle = Particles[ParticleIndex];
-		auto& RuntimeParticle = RuntimeParticles[ParticleIndex];
+		auto& RuntimeParticle = Particles[ParticleIndex];
 		switch (ConfigParticle.ParticleType)
 		{
 		case ELoogPhysicsParticleType::Root:
 			{
-				const auto& BoneTransCS = Output.Pose.GetComponentSpaceTransform(RuntimeParticle.BoneIndex);
+				const auto& BoneTransCS = Output.Pose.GetComponentSpaceTransform(RuntimeParticle.BindBone.GetCompactPoseIndex(RequiredBones));
 				RuntimeParticle.Position = BoneTransCS.GetTranslation();
 				RuntimeParticle.SimRotation = BoneTransCS.GetRotation();
 			}
@@ -361,94 +296,195 @@ void FAnimNode_LoogPhysics::SimulateOnce(FComponentSpacePoseContext& Output, con
 
 	// second Update Constraint
 	float InvDeltaTimeSquared = 1.0f / (DeltaTimeSeconds * DeltaTimeSeconds);
-	for (const FLoogPhysicsDistanceConstraint& DistanceConstraint : RuntimeDistanceConstraints)
+	auto  UpdateConstraint    = [&](const FLoogPhysicsConstraint& DistanceConstraint)
 	{
-		auto& Particle0 = RuntimeParticles[DistanceConstraint.Particle0Index];
-		auto& Particle1 = RuntimeParticles[DistanceConstraint.Particle1Index];
-		float W = Particle0.InvMass + Particle1.InvMass;
+		auto& Particle0 = Particles[DistanceConstraint.ParticleAIndex];
+		auto& Particle1 = Particles[DistanceConstraint.ParticleBIndex];
+		float W         = Particle0.InvMass + Particle1.InvMass;
 		if (W == 0.f)
 		{
-			continue;
+			return;
 		}
-		FVector Delta = Particle0.Position - Particle1.Position;
-		float CurrentLength = Delta.Length();
+		FVector Delta         = Particle0.Position - Particle1.Position;
+		float   CurrentLength = Delta.Length();
 		if (CurrentLength <= 0.f)
 		{
-			continue;
+			return;
 		}
-		FVector GradC = Delta / CurrentLength;
-		float C = CurrentLength - DistanceConstraint.RestLength;
-		float Compliance = C > 0 ? DistanceConstraint.ShrinkCompliance : DistanceConstraint.StretchCompliance;
-		float XPBDAlpha = Compliance * InvDeltaTimeSquared;
-		float Lambda = -C / (W + XPBDAlpha);
+		FVector GradC      = Delta / CurrentLength;
+		float   C          = CurrentLength - DistanceConstraint.RestLength;
+		float   Compliance = C > 0 ? DistanceConstraint.ShrinkCompliance : DistanceConstraint.StretchCompliance;
+		float   XPBDAlpha  = Compliance * InvDeltaTimeSquared;
+		float   Lambda     = -C / (W + XPBDAlpha);
 
 		FVector Correction = GradC * Lambda;
 
 		Particle0.Position += Correction * Particle0.InvMass;
 		Particle1.Position -= Correction * Particle1.InvMass;
+	};
+
+	// distance constraint
+	for (auto& Section : ClothSections)
+	{
+		for (auto& Constraint : Section.LocalVerticalConstraints)
+		{
+			UpdateConstraint(Constraint);
+		}
+		for (auto& Constraint : Section.GlobalStructureConstraints)
+		{
+			UpdateConstraint(Constraint);
+		}
+		for (auto& Constraint : Section.LocalHorizontalConstraints)
+		{
+			UpdateConstraint(Constraint);
+		}
+		for (auto& Constraint : Section.BendingStructureConstraints)
+		{
+			UpdateConstraint(Constraint);
+		}
 	}
 
 	// bending constraint
-	for (int32 ParticleIndex = 0; ParticleIndex < Particles.Num(); ++ParticleIndex)
+	if (bEnableChainBendingLocal)
 	{
-		auto& ChildConfigParticle = Particles[ParticleIndex];
-		if (ChildConfigParticle.ParticleType == ELoogPhysicsParticleType::Root)
+		for (FLoogPhysicsClothSection& ClothSection : ClothSections)
 		{
-			continue;
-		}
-		auto& ChildParticle = RuntimeParticles[ParticleIndex];
-		auto& ParentParticle = RuntimeParticles[ChildParticle.ParentParticleIndex];
-		float W = ChildParticle.InvMass + ParentParticle.InvMass;
-		if (W == 0.f)
-		{
-			continue;
-		}
+			for (auto& Chain : ClothSection.Chains)
+			{
+				for (int32 i = 2; i < Chain.ParticleIndices.Num(); ++i)
+				{
+					int32 GrandparentIndex = Chain.ParticleIndices[i - 2];
+					int32 ParentIndex = Chain.ParticleIndices[i - 1];
+					int32 ChildIndex = Chain.ParticleIndices[i];
+					auto& GrandparentParticle = Particles[GrandparentIndex];
+					auto& ParentParticle = Particles[ParentIndex];
+					auto& ChildParticle = Particles[ChildIndex];
 
-		FTransform ChildPoseLocalTransform = Output.Pose.GetLocalSpaceTransform(ChildParticle.BoneIndex);
-		
-		FVector BonePoseSimDirection = ParentParticle.SimRotation.RotateVector(ChildPoseLocalTransform.GetTranslation());
-		FVector BonePosePosition = BonePoseSimDirection + ParentParticle.Position;
-		FVector Diff = ChildParticle.Position - BonePosePosition;
-		float CurrentLength = Diff.Length();
-		if (CurrentLength < UE_KINDA_SMALL_NUMBER)
-		{
-			continue;
-		}
-		FVector GradC      = Diff / CurrentLength;
-		float   C          = CurrentLength;
-		float   XPBDAlpha  = ParentParticle.BendingCompliance * InvDeltaTimeSquared;
-		float   Lambda     = -C / (W + XPBDAlpha);
-		FVector Correction = GradC * Lambda * ChildParticle.InvMass;
-		ChildParticle.Position += Correction * ChildParticle.InvMass;
+					float W = GrandparentParticle.InvMass + ChildParticle.InvMass;
+					if (W == 0.f)
+					{
+						continue;
+					}
+					float ThetaSim;
+					float ThetaPose;
+					FVector RotationAxis;
+					{
+						FVector Dir0 = ChildParticle.Position - ParentParticle.Position;
+						FVector Dir1 = GrandparentParticle.Position - ParentParticle.Position;
+						if (!Dir0.Normalize() || !Dir1.Normalize())
+						{
+							continue;
+						}
+						ThetaSim = FMath::Acos(FVector::DotProduct(Dir0, Dir1));
+						RotationAxis = FVector::CrossProduct(Dir0, Dir1);
+					}
+					{
+						FVector ChildPosePosition;
+						if (ChildParticle.ParticleType == ELoogPhysicsParticleType::VirtualBone)
+						{
+							ChildPosePosition = Output.Pose.GetComponentSpaceTransform(ChildParticle.BindBone.GetCompactPoseIndex(RequiredBones)).TransformPosition(ChildParticle.VirtualBoneLocalPosition);
+						}
+						else
+						{
+							ChildPosePosition = Output.Pose.GetComponentSpaceTransform(ChildParticle.BindBone.GetCompactPoseIndex(RequiredBones)).GetTranslation();
+						}
+						FVector ParentPosePosition = Output.Pose.GetComponentSpaceTransform(ParentParticle.BindBone.GetCompactPoseIndex(RequiredBones)).GetTranslation();
+						FVector GrandparentPosePosition = Output.Pose.GetComponentSpaceTransform(GrandparentParticle.BindBone.GetCompactPoseIndex(RequiredBones)).GetTranslation();
+						FVector Dir0 = ChildPosePosition - ParentPosePosition;
+						FVector Dir1 = GrandparentPosePosition - ParentPosePosition;
+						if (!Dir0.Normalize() || !Dir1.Normalize())
+						{
+							continue;
+						}
+						ThetaPose = FMath::Acos(FVector::DotProduct(Dir0, Dir1));
+					}
 
-		// recompute parent rotation
-		FVector BoneSimDirection = ChildParticle.Position - ParentParticle.Position;
-		if (!BoneSimDirection.Normalize())
-		{
-			continue;
-		}
-		if (!BonePoseSimDirection.Normalize())
-		{
-			continue;
-		}
-		FQuat AddRotation = FQuat::FindBetweenNormals(BonePoseSimDirection, BoneSimDirection);
-		ParentParticle.SimRotation = AddRotation * ParentParticle.SimRotation;
-		ChildParticle.SimRotation = ParentParticle.SimRotation * ChildPoseLocalTransform.GetRotation();
+					FVector GradC     = RotationAxis;
+					float   C         = ThetaSim - ThetaPose;
+					float   XPBDAlpha = ParentParticle.LocalBendingCompliance * InvDeltaTimeSquared;
+					float   Lambda    = -C / (W + XPBDAlpha);
 
-		// FQuat AddRotation = FQuat::FindBetweenNormals(BonePoseDirection, BoneSimDirection);
-		// FQuat::FReal DiffAngle = AddRotation.GetAngle();
-		//
-		// float C = DiffAngle;
-		// float GradC = DiffAngle / FMath::Abs(DiffAngle);
-		//
-		// float XPBDAlpha = ParentParticle.BendingCompliance * InvDeltaTimeSquared;
-		// float Lambda = -C / (W + XPBDAlpha);
-		// FQuat Correction = FQuat(AddRotation.GetRotationAxis(), -GradC * Lambda * ChildParticle.InvMass);
-		//  
-		// ParentParticle.SimRotation = Correction * ParentParticle.SimRotation;
-		// ChildParticle.SimRotation = ChildPoseLocalTransform.GetRotation() * ParentParticle.SimRotation;
-		// ChildParticle.Position = ParentParticle.Position + ParentParticle.SimRotation.RotateVector(ChildPoseLocalTransform.GetTranslation());
+					FQuat ChildDiffRot = FQuat(GradC, -Lambda * ChildParticle.InvMass);
+					ChildParticle.Position = ChildDiffRot.RotateVector(ChildParticle.Position - ParentParticle.Position) + ParentParticle.Position;
+
+					FQuat GrandparentDiffRot = FQuat(GradC, Lambda * GrandparentParticle.InvMass);
+					GrandparentParticle.Position = GrandparentDiffRot.RotateVector(GrandparentParticle.Position - ParentParticle.Position) + ParentParticle.Position;
+				}
+			}
+
+		}
 	}
+	if (bEnableChainBendingGlobal)
+	{
+		for (int32 ParticleIndex = 0; ParticleIndex < Particles.Num(); ++ParticleIndex)
+		{
+			auto& ChildParticle = Particles[ParticleIndex];
+			if (ChildParticle.ParticleType == ELoogPhysicsParticleType::Root)
+			{
+				continue;
+			}
+			auto& ParentParticle = Particles[ChildParticle.ParentParticleIndex];
+			float W = ChildParticle.InvMass + ParentParticle.InvMass;
+			if (W == 0.f)
+			{
+				continue;
+			}
+
+			FTransform ChildPoseLocalTransform;
+			if (ChildParticle.ParticleType == ELoogPhysicsParticleType::VirtualBone)
+			{
+				ChildPoseLocalTransform = FTransform(ChildParticle.VirtualBoneLocalPosition);
+			}
+			else
+			{
+				ChildPoseLocalTransform = Output.Pose.GetLocalSpaceTransform(ChildParticle.BindBone.GetCompactPoseIndex(RequiredBones));
+			}
+
+			FVector BonePoseSimDirection = ParentParticle.SimRotation.RotateVector(ChildPoseLocalTransform.GetTranslation());
+			FVector BonePosePosition = BonePoseSimDirection + ParentParticle.Position;
+			FVector Diff = ChildParticle.Position - BonePosePosition;
+			float CurrentLength = Diff.Length();
+			if (CurrentLength < UE_KINDA_SMALL_NUMBER)
+			{
+				continue;
+			}
+			FVector GradC = Diff / CurrentLength;
+			float   C = CurrentLength;
+			float   XPBDAlpha = ParentParticle.GlobalBendingCompliance * InvDeltaTimeSquared;
+			float   Lambda = -C / (W + XPBDAlpha);
+			FVector Correction = GradC * Lambda * ChildParticle.InvMass;
+			ChildParticle.Position += Correction * ChildParticle.InvMass;
+
+			// recompute parent rotation
+			FVector BoneSimDirection = ChildParticle.Position - ParentParticle.Position;
+			if (!BoneSimDirection.Normalize())
+			{
+				continue;
+			}
+			if (!BonePoseSimDirection.Normalize())
+			{
+				continue;
+			}
+			FQuat AddRotation = FQuat::FindBetweenNormals(BonePoseSimDirection, BoneSimDirection);
+			ParentParticle.SimRotation = AddRotation * ParentParticle.SimRotation;
+			ChildParticle.SimRotation = ParentParticle.SimRotation * ChildPoseLocalTransform.GetRotation();
+
+			// FQuat AddRotation = FQuat::FindBetweenNormals(BonePoseDirection, BoneSimDirection);
+			// FQuat::FReal DiffAngle = AddRotation.GetAngle();
+			//
+			// float C = DiffAngle;
+			// float GradC = DiffAngle / FMath::Abs(DiffAngle);
+			//
+			// float XPBDAlpha = ParentParticle.BendingCompliance * InvDeltaTimeSquared;
+			// float Lambda = -C / (W + XPBDAlpha);
+			// FQuat Correction = FQuat(AddRotation.GetRotationAxis(), -GradC * Lambda * ChildParticle.InvMass);
+			//  
+			// ParentParticle.SimRotation = Correction * ParentParticle.SimRotation;
+			// ChildParticle.SimRotation = ChildPoseLocalTransform.GetRotation() * ParentParticle.SimRotation;
+			// ChildParticle.Position = ParentParticle.Position + ParentParticle.SimRotation.RotateVector(ChildPoseLocalTransform.GetTranslation());
+		}
+	}
+	
 	// handle collision
 	if (bEnableCollision)
 	{
@@ -459,7 +495,7 @@ void FAnimNode_LoogPhysics::SimulateOnce(FComponentSpacePoseContext& Output, con
 	float InvDeltaTime = 1.0f / DeltaTimeSeconds;
 	for (int32 ParticleIndex = 0; ParticleIndex < Particles.Num(); ++ParticleIndex)
 	{
-		auto& RuntimeParticle = RuntimeParticles[ParticleIndex];
+		auto& RuntimeParticle = Particles[ParticleIndex];
 
 		RuntimeParticle.Velocity = (RuntimeParticle.Position - RuntimeParticle.PrevPosition) * InvDeltaTime;
 	}
@@ -490,11 +526,10 @@ void FAnimNode_LoogPhysics::CollisionDetection()
 
 		const FVector& StartPoint = RuntimeCollider.CenterASimSpace;
 		const FVector& EndPoint = RuntimeCollider.CenterBSimSpace;
-		int32 ParticleCount = RuntimeParticles.Num();
+		int32 ParticleCount = Particles.Num();
 		for (int ParticleIndex = 0; ParticleIndex < ParticleCount; ++ParticleIndex)
 		{
-			const auto& ConfigParticle = Particles[ParticleIndex];
-			auto& Particle = RuntimeParticles[ParticleIndex];
+			auto& Particle = Particles[ParticleIndex];
 
 			const FVector& Point = Particle.Position;
 
@@ -528,7 +563,7 @@ void FAnimNode_LoogPhysics::CollisionDetection()
 			}
 			FVector DirVector = Point - ClosestPoint;
 			FVector::FReal CurrentDistance = DirVector.Length();
-			FVector::FReal RestMinDistance = ConfigParticle.Thickness + SphereRadius;
+			FVector::FReal RestMinDistance = Particle.Thickness + SphereRadius;
 			if (CurrentDistance < RestMinDistance)
 			{
 				if (CurrentDistance < UE_SMALL_NUMBER)
@@ -548,10 +583,8 @@ void FAnimNode_LoogPhysics::CollisionDetection()
 		{
 			for (FLoogPhysicsParticleCollider& Collider : ClothSection.Colliders)
 			{
-				auto& Particle0 = RuntimeParticles[Collider.Particle0Index];
-				const auto& ConfigParticle0 = Particles[Collider.Particle0Index];
-				auto& Particle1 = RuntimeParticles[Collider.Particle1Index];
-				const auto& ConfigParticle1 = Particles[Collider.Particle1Index];
+				auto& Particle0 = Particles[Collider.Particle0Index];
+				auto& Particle1 = Particles[Collider.Particle1Index];
 
 				FVector ClosestPoint1, ClosestPoint2;
 				FMath::SegmentDistToSegmentSafe(RuntimeCollider.CenterASimSpace, RuntimeCollider.CenterBSimSpace, Particle0.Position, Particle1.Position, ClosestPoint1, ClosestPoint2);
@@ -581,7 +614,7 @@ void FAnimNode_LoogPhysics::CollisionDetection()
 				}
 
 				float Radius1 = FMath::Lerp(SetupCollider.Radius0, SetupCollider.Radius1, S);
-				float Radius2 = FMath::Lerp(ConfigParticle0.Thickness, ConfigParticle1.Thickness, T);
+				float Radius2 = FMath::Lerp(Particle0.Thickness, Particle1.Thickness, T);
 
 				FVector ClosestDirection = ClosestPoint2 - ClosestPoint1;
 				float Distance = ClosestDirection.Length();
@@ -601,23 +634,23 @@ void FAnimNode_LoogPhysics::CollisionDetection()
 
 void FAnimNode_LoogPhysics::ApplySimulateResult(FComponentSpacePoseContext& Output, TArray<FBoneTransform>& OutBoneTransforms)
 {
+	const auto& RequiredBones = Output.AnimInstanceProxy->GetRequiredBones();
 	for (int32 ParticleIndex = 0; ParticleIndex < Particles.Num(); ++ParticleIndex)
 	{
-		auto& ChildParticle = RuntimeParticles[ParticleIndex];
-		auto& ChildConfigParticle = Particles[ParticleIndex];
-		if (ChildConfigParticle.ParticleType == ELoogPhysicsParticleType::Root)
+		auto& ChildParticle = Particles[ParticleIndex];
+		if (ChildParticle.ParticleType == ELoogPhysicsParticleType::Root)
 		{
 			continue;
 		}
-		auto& ParentParticle = RuntimeParticles[ChildParticle.ParentParticleIndex];
+		auto& ParentParticle = Particles[ChildParticle.ParentParticleIndex];
 		FVector BoneSimDirection = ChildParticle.Position - ParentParticle.Position;
 		if (!BoneSimDirection.Normalize())
 		{
 			continue;
 		}
-		const FTransform& BoneLocalPoseTransform = Output.Pose.GetLocalSpaceTransform(ChildParticle.BoneIndex);
+		const FTransform& BoneLocalPoseTransform = Output.Pose.GetLocalSpaceTransform(ChildParticle.BindBone.GetCompactPoseIndex(RequiredBones));
 
-		FTransform        BonePoseTransform = Output.Pose.GetComponentSpaceTransform(ParentParticle.BoneIndex);
+		FTransform        BonePoseTransform = Output.Pose.GetComponentSpaceTransform(ParentParticle.BindBone.GetCompactPoseIndex(RequiredBones));
 		FVector ForwardAxis = BoneLocalPoseTransform.GetTranslation();
 		FVector           BonePoseDirection = BonePoseTransform.GetRotation().RotateVector(ForwardAxis);
 		if (!BonePoseDirection.Normalize())
@@ -627,8 +660,7 @@ void FAnimNode_LoogPhysics::ApplySimulateResult(FComponentSpacePoseContext& Outp
 		FQuat             AddRotation = FQuat::FindBetweenNormals(BonePoseDirection, BoneSimDirection);
 		BonePoseTransform.SetRotation(AddRotation * BonePoseTransform.GetRotation());
 
-		const auto& ConfigParticle = Particles[ChildParticle.ParentParticleIndex];
-		switch (ConfigParticle.ParticleType)
+		switch (ChildParticle.ParticleType)
 		{
 		case ELoogPhysicsParticleType::Root:
 			{
@@ -638,7 +670,7 @@ void FAnimNode_LoogPhysics::ApplySimulateResult(FComponentSpacePoseContext& Outp
 				{
 					continue;
 				}
-				OutBoneTransforms.Add(FBoneTransform(ParentParticle.BoneIndex, BonePoseTransform));
+				OutBoneTransforms.Add(FBoneTransform(ParentParticle.BindBone.GetCompactPoseIndex(RequiredBones), BonePoseTransform));
 			}
 			break;
 		case ELoogPhysicsParticleType::Bone:
@@ -649,7 +681,7 @@ void FAnimNode_LoogPhysics::ApplySimulateResult(FComponentSpacePoseContext& Outp
 				{
 					continue;
 				}
-				OutBoneTransforms.Add(FBoneTransform(ParentParticle.BoneIndex, BonePoseTransform));
+				OutBoneTransforms.Add(FBoneTransform(ParentParticle.BindBone.GetCompactPoseIndex(RequiredBones), BonePoseTransform));
 			}
 			break;
 		case ELoogPhysicsParticleType::Max:

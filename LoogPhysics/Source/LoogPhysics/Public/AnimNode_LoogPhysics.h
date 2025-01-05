@@ -57,19 +57,29 @@ struct FLoogPhysicsParticle
 	float AngularDamping = 0.01f;
 
 	UPROPERTY(EditAnywhere)
-	float GlobalStructureCompliance = 0.01f;
-
-	UPROPERTY(EditAnywhere)
-	float LocalStructureCompliance = 0.01f;
-
-	UPROPERTY(EditAnywhere)
 	float BendingStructureCompliance = 0.01f;
+
+	UPROPERTY(EditAnywhere)
+	float LocalBendingCompliance;
+
+	UPROPERTY(EditAnywhere)
+	float GlobalBendingCompliance;
 
 	UPROPERTY(EditAnywhere)
 	float MaxVelocity = 1000.f;
 
 	UPROPERTY(EditAnywhere)
 	float MaxAngle = 180.f;
+
+	float InvMass;
+
+	int32 ParentParticleIndex;
+
+	FVector PrevPosition;
+	FVector Position;
+	FVector Velocity;
+
+	FQuat SimRotation;
 };
 
 USTRUCT()
@@ -91,6 +101,9 @@ struct FLoogPhysicsConstraint
 
 	UPROPERTY(EditAnywhere)
 	float StretchCompliance = 0.01f;
+
+	// runtime data
+	float RestLength;
 };
 
 USTRUCT()
@@ -137,42 +150,19 @@ struct FLoogPhysicsClothSection
 	TArray<FLoogPhysicsChain> Chains;
 
 	UPROPERTY(EditAnywhere)
-	TArray<FLoogPhysicsConstraint> Constraints;
+	TArray<FLoogPhysicsConstraint> LocalVerticalConstraints;
+
+	UPROPERTY(EditAnywhere)
+	TArray<FLoogPhysicsConstraint> GlobalStructureConstraints;
+
+	UPROPERTY(EditAnywhere)
+	TArray<FLoogPhysicsConstraint> BendingStructureConstraints;
+
+	UPROPERTY(EditAnywhere)
+	TArray<FLoogPhysicsConstraint> LocalHorizontalConstraints;
 
 	UPROPERTY(EditAnywhere)
 	TArray<FLoogPhysicsParticleCollider> Colliders;
-};
-
-struct FLoogPhysicsRuntimeParticle
-{
-	FCompactPoseBoneIndex BoneIndex;
-	float InvMass;
-	float BendingCompliance;
-	int32 ParentParticleIndex;
-
-	FVector PrevPosition;
-	FVector Position;
-	FVector Velocity;
-
-	FQuat SimRotation;
-};
-
-struct FLoogPhysicsDistanceConstraint
-{
-	int32 Particle0Index;
-	int32 Particle1Index;
-
-	float RestLength;
-	float ShrinkCompliance;
-	float StretchCompliance;
-};
-
-struct FLoogPhysicsBendingConstraint
-{
-	int32 Particle0Index;
-	int32 Particle1Index;
-
-	float Compliance;
 };
 
 
@@ -192,19 +182,19 @@ struct LOOGPHYSICS_API FAnimNode_LoogPhysics : public FAnimNode_SkeletalControlB
 	GENERATED_USTRUCT_BODY()
 
 public:
-	UPROPERTY(EditAnywhere, Category = "ClothSettings")
+	UPROPERTY(EditAnywhere, Category = "Setting")
 	TArray<FLoogPhysicsParticle> Particles;
 
-	UPROPERTY(EditAnywhere, Category = "ClothSettings")
+	UPROPERTY(EditAnywhere, Category = "Setting")
 	TArray<FLoogPhysicsClothSection> ClothSections;
 
-	UPROPERTY(EditAnywhere, Category = "SimulationSetting")
+	UPROPERTY(EditAnywhere, Category = "Setting")
 	float FrameRate = 60.f;
 
-	UPROPERTY(EditAnywhere, Category = "SimulationSetting")
+	UPROPERTY(EditAnywhere, Category = "Setting")
 	int32 MaxSimulationPerFrame = 2;
 
-	UPROPERTY(EditAnywhere, Category = "SimulationSetting")
+	UPROPERTY(EditAnywhere, Category = "Setting")
 	FVector GravityWorldSpace = FVector(0, 0, -980);
 
 	UPROPERTY(EditAnywhere, Category = "Wind")
@@ -242,6 +232,12 @@ public:
 
 	UPROPERTY(EditAnywhere, Category = "Collision")
 	TObjectPtr<UPhysicsAsset> PhysicsAsset;
+
+	UPROPERTY(EditAnywhere, Category = "Debug")
+	bool bEnableChainBendingGlobal = false;
+
+	UPROPERTY(EditAnywhere, Category = "Debug")
+	bool bEnableChainBendingLocal = false;
 public:
 	friend class FLoogPhysicsEditMode;
 	FAnimNode_LoogPhysics();
@@ -288,9 +284,6 @@ private:
 	 */
 	void ApplySimulateResult(FComponentSpacePoseContext& Output, TArray<FBoneTransform>& OutBoneTransforms);
 
-	TArray<FLoogPhysicsRuntimeParticle> RuntimeParticles;
-	TArray<FLoogPhysicsDistanceConstraint> RuntimeDistanceConstraints;
-	TArray<FLoogPhysicsBendingConstraint> RuntimeBendingConstraints;
 	TArray<FLoogPhysicsCapsule> RuntimeColliders;
 	TArray<FKTaperedCapsuleElem> SetupColliders;
 

@@ -213,6 +213,8 @@ void UAnimGraphNode_LoogPhysics::CreateParticlesAndConstraints()
 					}
 					Particle.Mass = BoneChain.Mass;
 					Particle.Thickness = BoneChain.Thickness;
+					Particle.LocalBendingCompliance = LocalBendingVerticalCompliance;
+					Particle.GlobalBendingCompliance = GlobalBendingVerticalCompliance;
 				}
 				if (BoneChain.VirtualBoneLength > 0.f)
 				{
@@ -223,6 +225,8 @@ void UAnimGraphNode_LoogPhysics::CreateParticlesAndConstraints()
 					Particle.VirtualBoneLocalPosition = FVector(BoneChain.VirtualBoneLength, 0.f, 0.f);
 					Particle.Mass = BoneChain.Mass;
 					Particle.Thickness = BoneChain.Thickness;
+					Particle.LocalBendingCompliance = LocalBendingVerticalCompliance;
+					Particle.GlobalBendingCompliance = GlobalBendingVerticalCompliance;
 				}
 			}
 		}
@@ -233,9 +237,24 @@ void UAnimGraphNode_LoogPhysics::CreateParticlesAndConstraints()
 	{
 		FLoogPhysicsBoneSection&  BoneSection  = BoneSections[SectionIndex];
 		FLoogPhysicsClothSection& ClothSection = Node.ClothSections[SectionIndex];
+
+		int32 ChainNum = ClothSection.Chains.Num();
+		for (int32 ChainIndex = 0; ChainIndex < ChainNum; ++ChainIndex)
+		{
+			auto& BoneChain = BoneSection.BoneChains[ChainIndex];
+			auto& Chain = ClothSection.Chains[ChainIndex];
+			if (BoneChain.bChainCollision)
+			{
+				for (int32 i = 1; i < Chain.ParticleIndices.Num(); ++i)
+				{
+					auto& Collider = ClothSection.Colliders.AddDefaulted_GetRef();
+					Collider.Particle0Index = Chain.ParticleIndices[i - 1];
+					Collider.Particle1Index = Chain.ParticleIndices[i];
+				}
+			}
+		}
 		if (BoneSection.bNeedConnectChains)
 		{
-			int32 ChainNum = ClothSection.Chains.Num();
 			for (int32 ChainIndex = 0; ChainIndex < ChainNum; ++ChainIndex)
 			{
 				auto& Chain = ClothSection.Chains[ChainIndex];
@@ -251,16 +270,22 @@ void UAnimGraphNode_LoogPhysics::CreateParticlesAndConstraints()
 						auto& NextChain = ClothSection.Chains[NextChainIndex];
 						for (int32 Idx = 1; Idx < ChainLength; ++Idx)
 						{
+							if (Idx >= Chain.ParticleIndices.Num())
+							{
+								continue;	
+							}
+							if (Idx >= NextChain.ParticleIndices.Num())
+							{
+								continue;
+							}
 							int32 AIndex = Chain.ParticleIndices[Idx];
 							int32 BIndex = NextChain.ParticleIndices[Idx];
-							auto& Constraint = ClothSection.Constraints.AddDefaulted_GetRef();
+							auto& Constraint = ClothSection.LocalHorizontalConstraints.AddDefaulted_GetRef();
 							Constraint.ParticleAIndex = AIndex;
 							Constraint.ParticleBIndex = BIndex;
 
-							auto& AConfigParticle = Node.Particles[AIndex];
-							auto& BConfigParticle = Node.Particles[BIndex];
-							Constraint.ShrinkCompliance = (AConfigParticle.LocalStructureCompliance + BConfigParticle.LocalStructureCompliance) * 0.5f;
-							Constraint.StretchCompliance = (AConfigParticle.LocalStructureCompliance + BConfigParticle.LocalStructureCompliance) * 0.5f;
+							Constraint.ShrinkCompliance = LocalHorizontalCompliance;
+							Constraint.StretchCompliance = LocalHorizontalCompliance;
 							if (BoneSection.bConnectChainsCollision)
 							{
 								auto& Collider = ClothSection.Colliders.AddDefaulted_GetRef();
@@ -269,6 +294,66 @@ void UAnimGraphNode_LoogPhysics::CreateParticlesAndConstraints()
 							}
 						}
 					}
+				}
+				{// bending structure
+					int32 NextChainIndex = ChainIndex + 2;
+					if (NextChainIndex < ChainNum || BoneSection.bChainLoop)
+					{
+						if (NextChainIndex >= ChainNum)
+						{
+							NextChainIndex = NextChainIndex - ChainNum;
+						}
+						auto& NextChain = ClothSection.Chains[NextChainIndex];
+						for (int32 Idx = 1; Idx < ChainLength; ++Idx)
+						{
+							if (Idx >= Chain.ParticleIndices.Num())
+							{
+								continue;
+							}
+							if (Idx >= NextChain.ParticleIndices.Num())
+							{
+								continue;
+							}
+							int32 AIndex = Chain.ParticleIndices[Idx];
+							int32 BIndex = NextChain.ParticleIndices[Idx];
+							auto& Constraint = ClothSection.BendingStructureConstraints.AddDefaulted_GetRef();
+							Constraint.ParticleAIndex = AIndex;
+							Constraint.ParticleBIndex = BIndex;
+
+							Constraint.ShrinkCompliance = BendingHorizontalCompliance;
+							Constraint.StretchCompliance = BendingHorizontalCompliance;
+						}
+					}
+				}
+			}
+		}
+
+		for (int32 ChainIndex = 0; ChainIndex < ChainNum; ++ChainIndex)
+		{
+			auto& Chain = ClothSection.Chains[ChainIndex];
+			int32 ChainLength = Chain.ParticleIndices.Num();
+			{ // global structure
+				int32 RootIndex = Chain.ParticleIndices[Chain.RootParticleIndex];
+				for (int32 Idx = 1; Idx < ChainLength; ++Idx)
+				{
+					int32 ChildIndex = Chain.ParticleIndices[Idx];
+					auto& Constraint = ClothSection.GlobalStructureConstraints.AddZeroed_GetRef();
+					Constraint.ParticleAIndex = RootIndex;
+					Constraint.ParticleBIndex = ChildIndex;
+					Constraint.ShrinkCompliance = GlobalStructureCompliance;
+					Constraint.StretchCompliance = GlobalStructureCompliance;
+				}
+			}
+			{// local structure vertical
+				for (int32 Idx = 1; Idx < ChainLength; ++Idx)
+				{
+					int32 AIndex = Chain.ParticleIndices[Idx - 1];
+					int32 BIndex = Chain.ParticleIndices[Idx];
+					auto& Constraint = ClothSection.LocalVerticalConstraints.AddZeroed_GetRef();
+					Constraint.ParticleAIndex = AIndex;
+					Constraint.ParticleBIndex = BIndex;
+					Constraint.ShrinkCompliance = LocalStructureCompliance;
+					Constraint.StretchCompliance = LocalStructureCompliance;
 				}
 			}
 		}
@@ -393,7 +478,7 @@ void UAnimGraphNode_LoogPhysics::RemoveConstraints()
 {
 	for (FLoogPhysicsClothSection& ClothSection : Node.ClothSections)
 	{
-		ClothSection.Constraints.Empty();
+		ClothSection.LocalHorizontalConstraints.Empty();
 	}
 }
 

@@ -26,6 +26,9 @@ struct FLoogPhysicsBoneChain
 
 	UPROPERTY(EditAnywhere)
 	float Thickness = 1.0f;
+
+	UPROPERTY(EditAnywhere)
+	bool bChainCollision = true;
 };
 
 
@@ -90,22 +93,40 @@ public:
 	// TObjectPtr<UPhysicsAsset> PhysicsAsset;
 
 	UPROPERTY(EditAnywhere, Category = "Loog Physics Tools")
-	float ShrinkCompliance = 0.01f;
+	float LocalStructureCompliance = 0.0f;
 
 	UPROPERTY(EditAnywhere, Category = "Loog Physics Tools")
-	float StretchCompliance = 0.01f;
+	float GlobalStructureCompliance = 0.01f;
 
 	UPROPERTY(EditAnywhere, Category = "Loog Physics Tools")
-	bool bBendingVertical = true;
+	float BendingHorizontalCompliance = 0.01f;
 
 	UPROPERTY(EditAnywhere, Category = "Loog Physics Tools")
-	bool bBendingHorizontal = true;
+	float LocalHorizontalCompliance = 0.01f;
+
+	UPROPERTY(EditAnywhere, Category = "Loog Physics Tools")
+	float LocalBendingVerticalCompliance = 0.001f;
+
+	UPROPERTY(EditAnywhere, Category = "Loog Physics Tools")
+	float GlobalBendingVerticalCompliance = 0.001f;
 
 	UPROPERTY(EditAnywhere, Category = "Loog Physics Tools")
 	FString PropertyName;
 
 	UPROPERTY(EditAnywhere, Category = "Loog Physics Tools")
 	TArray<float> ValueToSet;
+
+	UPROPERTY(EditAnywhere, Category = "Loog Physics Tools")
+	bool bDrawConstraints = false;
+
+	UPROPERTY(EditAnywhere, Category = "Loog Physics Tools")
+	bool bDrawParticles = false;
+
+	UPROPERTY(EditAnywhere, Category = "Loog Physics Tools")
+	bool bDrawClothColliders = false;
+
+	UPROPERTY(EditAnywhere, Category = "Loog Physics Tools")
+	bool bDrawColliders = false;
 private:
 	/** Constructing FText strings can be costly, so we cache the node's title */
 	FNodeTitleTextTable CachedNodeTitles;

@@ -40,48 +40,77 @@ void FLoogPhysicsEditMode::Render(const FSceneView* View, FViewport* Viewport, F
 
 	if (RuntimeNode != nullptr)
 	{
-		const auto& RuntimeParticles = RuntimeNode->RuntimeParticles;
+		const auto& RuntimeParticles = RuntimeNode->Particles;
 		if (RuntimeParticles.Num() == 0)
 		{
 			return;
 		}
-		const auto& SetupParticles = RuntimeNode->Particles;
-		int32 ParticleCount = RuntimeParticles.Num();
-		for (int32 ParticleIndex = 0; ParticleIndex < ParticleCount; ++ParticleIndex)
+		if (GraphNode->bDrawParticles)
 		{
-			const auto& RuntimeParticle = RuntimeParticles[ParticleIndex];
-			const auto& SetupParticle = SetupParticles[ParticleIndex];
-
-			DrawWireSphere(PDI, RuntimeParticle.Position, FLinearColor::Blue, SetupParticle.Thickness, 16, SDPG_Foreground);
-		}
-		for (const auto& Section  : RuntimeNode->ClothSections)
-		{
-			for (auto& Chain : Section.Chains)
+			int32 ParticleCount = RuntimeParticles.Num();
+			for (int32 ParticleIndex = 0; ParticleIndex < ParticleCount; ++ParticleIndex)
 			{
-				for (int32 Idx = 1; Idx < Chain.ParticleIndices.Num(); ++Idx)
+				const auto& RuntimeParticle = RuntimeParticles[ParticleIndex];
+
+				DrawWireSphere(PDI, RuntimeParticle.Position, FLinearColor::Blue, RuntimeParticle.Thickness, 16, SDPG_Foreground);
+			}
+		}
+		if (GraphNode->bDrawConstraints)
+		{
+			for (const auto& Section : RuntimeNode->ClothSections)
+			{
+				for (auto& Constraint : Section.LocalVerticalConstraints)
 				{
-					const auto& ParentParticle = RuntimeParticles[Chain.ParticleIndices[Idx - 1]];
-					const auto& ChildParticle = RuntimeParticles[Chain.ParticleIndices[Idx]];
-					PDI->DrawLine(ParentParticle.Position, ChildParticle.Position, FLinearColor::Black, SDPG_Foreground);
+					const auto& AParticle = RuntimeParticles[Constraint.ParticleAIndex];
+					const auto& BParticle = RuntimeParticles[Constraint.ParticleBIndex];
+					PDI->DrawLine(AParticle.Position, BParticle.Position, FLinearColor::White, SDPG_Foreground);
+				}
+				for (auto& Constraint : Section.GlobalStructureConstraints)
+				{
+					const auto& AParticle = RuntimeParticles[Constraint.ParticleAIndex];
+					const auto& BParticle = RuntimeParticles[Constraint.ParticleBIndex];
+					PDI->DrawLine(AParticle.Position, BParticle.Position, FLinearColor::White, SDPG_Foreground);
+				}
+				for (auto& Constraint : Section.LocalHorizontalConstraints)
+				{
+					const auto& AParticle = RuntimeParticles[Constraint.ParticleAIndex];
+					const auto& BParticle = RuntimeParticles[Constraint.ParticleBIndex];
+					PDI->DrawLine(AParticle.Position, BParticle.Position, FLinearColor::White, SDPG_Foreground);
+				}
+				for (auto& Constraint : Section.BendingStructureConstraints)
+				{
+					const auto& AParticle = RuntimeParticles[Constraint.ParticleAIndex];
+					const auto& BParticle = RuntimeParticles[Constraint.ParticleBIndex];
+					PDI->DrawLine(AParticle.Position, BParticle.Position, FLinearColor::White, SDPG_Foreground);
 				}
 			}
-			for (auto& Constraint : Section.Constraints)
+		}
+		if (GraphNode->bDrawColliders)
+		{
+			const FMaterialRenderProxy* MaterialRenderProxy = GEngine->ConstraintLimitMaterialPrismatic->GetRenderProxy();
+			int32                       ColliderCount       = RuntimeNode->SetupColliders.Num();
+			for (int32 Idx = 0; Idx < ColliderCount; ++Idx)
 			{
-				const auto& AParticle = RuntimeParticles[Constraint.ParticleAIndex];
-				const auto& BParticle = RuntimeParticles[Constraint.ParticleBIndex];
-				PDI->DrawLine(AParticle.Position, BParticle.Position, FLinearColor::White, SDPG_Foreground);
-				
+				auto& SetupCollider   = RuntimeNode->SetupColliders[Idx];
+				auto& RuntimeCollider = RuntimeNode->RuntimeColliders[Idx];
+
+				SetupCollider.DrawElemSolid(PDI, RuntimeCollider.TransformSimSpace, 1.f, MaterialRenderProxy);
+				SetupCollider.DrawElemWire(PDI, RuntimeCollider.TransformSimSpace, 1.f, FColor::Black);
 			}
 		}
-		FMaterialRenderProxy* MaterialRenderProxy = GEngine->ConstraintLimitMaterialPrismatic->GetRenderProxy();
-		int32                 ColliderCount       = RuntimeNode->SetupColliders.Num();
-		for (int32 Idx = 0; Idx < ColliderCount; ++Idx)
+		if (GraphNode->bDrawClothColliders)
 		{
-			auto& SetupCollider = RuntimeNode->SetupColliders[Idx];
-			auto& RuntimeCollider = RuntimeNode->RuntimeColliders[Idx];
-
-			SetupCollider.DrawElemSolid(PDI, RuntimeCollider.TransformSimSpace, 1.f, MaterialRenderProxy);
-			SetupCollider.DrawElemWire(PDI, RuntimeCollider.TransformSimSpace, 1.f, FColor::Black);
+			const FMaterialRenderProxy* MaterialRenderProxy = GEngine->ConstraintLimitMaterialPrismatic->GetRenderProxy();
+			for (const auto& Section : RuntimeNode->ClothSections)
+			{
+				for (auto& Constraint : Section.Colliders)
+				{
+					const auto& AParticle = RuntimeParticles[Constraint.Particle0Index];
+					const auto& BParticle = RuntimeParticles[Constraint.Particle1Index];
+					PDI->DrawLine(AParticle.Position, BParticle.Position, FLinearColor::Black, SDPG_Foreground);
+					DrawCylinder(PDI, AParticle.Position, BParticle.Position, AParticle.Thickness, 25, MaterialRenderProxy, SDPG_World);
+				}
+			}
 		}
 	}
 	FAnimNodeEditMode::Render(View, Viewport, PDI);
